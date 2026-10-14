@@ -151,6 +151,15 @@ function normalizeProinProgramInput(input = {}) {
       "The referral recipient role does not match the selected wallet type.",
     );
   }
+  // A deposit program records money Pritze has already paid a salon, so the
+  // salon is not owed anything again when that credit funds a discount.
+  const salonDeposit = input.salonDeposit === true;
+  if (salonDeposit &&
+      (sourceType !== "manual" || walletType !== "salon_promotion_credits")) {
+    throw new ProinValidationError(
+      "Only a manual salon promotional credit program can record deposits.",
+    );
+  }
   const startsAtMillis = proinMillis(input.startsAtMillis, "Start date");
   const endsAtMillis = proinMillis(input.endsAtMillis, "End date");
   if (endsAtMillis <= startsAtMillis) {
@@ -219,6 +228,7 @@ function normalizeProinProgramInput(input = {}) {
     rewardRecipient,
     referralTargetRole,
     referralInviterRole,
+    salonDeposit,
     active: input.active === true,
     rewardAmountProin,
     rewardValidityDays,

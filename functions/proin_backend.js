@@ -459,6 +459,8 @@ function createProinBackend({admin, HttpsError}) {
         programId,
         programVersion: storedProin(program.version),
         redemptionPolicy: proinRedemptionPolicyFromProgram(program),
+        salonDeposit: walletType === "salon_promotion_credits" &&
+          program.salonDeposit === true,
         sourceType: String(program.sourceType || "manual"),
         sourceId,
         originalProin: amountProin,
@@ -3246,6 +3248,7 @@ function proinProgramView(programId, program = {}) {
     rewardRecipient: String(program.rewardRecipient || "account"),
     referralTargetRole: String(program.referralTargetRole || ""),
     referralInviterRole: String(program.referralInviterRole || ""),
+    salonDeposit: program.salonDeposit === true,
     active: program.active === true,
     rewardAmountProin: storedProin(program.rewardAmountProin),
     rewardValidityDays: storedProin(program.rewardValidityDays),

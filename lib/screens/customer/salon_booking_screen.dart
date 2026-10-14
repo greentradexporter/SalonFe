@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/services.dart';
@@ -58,6 +60,9 @@ class _SalonBookingScreenState extends State<SalonBookingScreen> {
   String _appliedVisibleCampaignId = '';
   String _couponMessage = '';
   bool _couponApplied = false;
+  // Offer list key whose default best offer the customer removed, so a
+  // reload of the same list does not put it back.
+  String _bestOfferDeclinedKey = '';
 
   bool get _priceSelectionPending =>
       _isApplyingCoupon || _applyingVisibleCampaignId.isNotEmpty;
@@ -145,12 +150,55 @@ class _SalonBookingScreenState extends State<SalonBookingScreen> {
     if (_visibleDiscountOffersFuture == null ||
         _visibleDiscountOffersKey != key) {
       _visibleDiscountOffersKey = key;
-      _visibleDiscountOffersFuture = appState.listCheckoutDiscountOffers(
+      final offers = appState.listCheckoutDiscountOffers(
         salonId: salonId,
         serviceIds: ids,
       );
+      _visibleDiscountOffersFuture = offers;
+      unawaited(
+        offers.then(
+          (loaded) =>
+              _selectBestOfferByDefault(appState, salonId, ids, key, loaded),
+          // The offer card shows the error and a retry.
+          onError: (_) {},
+        ),
+      );
     }
     return _visibleDiscountOffersFuture!;
+  }
+
+  /// The best offer is chosen for the customer by default. They can pick a
+  /// different offer, type a coupon, or remove it.
+  void _selectBestOfferByDefault(
+    AppState appState,
+    String salonId,
+    List<String> serviceIds,
+    String offersKey,
+    List<CheckoutDiscountOffer> offers,
+  ) {
+    final best = offers.firstOrNull;
+    final quote = best?.lockedQuote;
+    if (!mounted ||
+        best == null ||
+        quote == null ||
+        _visibleDiscountOffersKey != offersKey ||
+        _bestOfferDeclinedKey == offersKey ||
+        _couponApplied ||
+        _isApplyingCoupon ||
+        _appliedVisibleCampaignId.isNotEmpty ||
+        _applyingVisibleCampaignId.isNotEmpty) {
+      return;
+    }
+    setState(() {
+      _discountQuoteKey = _discountKey(appState, salonId, serviceIds);
+      _discountQuoteFuture = Future.value(quote);
+      _appliedVisibleCampaignId = best.campaignId;
+      _couponMessage =
+          'Best offer applied: ${best.campaignName}. You save ₹${quote.discountAmount}.';
+      _couponApplied = true;
+      _proinQuoteKey = '';
+      _proinQuoteFuture = null;
+    });
   }
 
   void _retryVisibleDiscountOffers() {
@@ -1005,6 +1053,7 @@ class _SalonBookingScreenState extends State<SalonBookingScreen> {
   }
 
   void _removeCheckoutCoupon() {
+    _bestOfferDeclinedKey = _visibleDiscountOffersKey;
     _couponController.clear();
     _discountQuoteFuture = null;
     _discountQuoteKey = '';

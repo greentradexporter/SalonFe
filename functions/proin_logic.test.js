@@ -40,6 +40,23 @@ const programInput = {
   termsVersion: "proin-v1",
 };
 
+test("only a manual salon credit program records Pritze deposits", () => {
+  const deposit = normalizeProinProgramInput({
+    ...programInput,
+    sourceType: "manual",
+    walletType: "salon_promotion_credits",
+    qualificationEvent: "manual_approval",
+    rewardRecipient: "account",
+    salonDeposit: true,
+  });
+  assert.equal(deposit.salonDeposit, true);
+  assert.equal(normalizeProinProgramInput(programInput).salonDeposit, false);
+  assert.throws(() => normalizeProinProgramInput({
+    ...programInput,
+    salonDeposit: true,
+  }), /Only a manual salon promotional credit program can record deposits/);
+});
+
 test("Proin programs normalize integer, expiry and eligibility controls", () => {
   const normalized = normalizeProinProgramInput(programInput);
   assert.equal(normalized.rewardAmountProin, 100);

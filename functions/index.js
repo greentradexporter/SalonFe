@@ -79,6 +79,7 @@ const {
   discountCampaignSelectableAtCheckout,
   discountFundingSource,
   discountPayoutMultiplier,
+  discountSalonFirstVisitEarning,
   discountSalonPromotionCreditLimit,
   emptyDiscountQuote,
   money,
@@ -2516,6 +2517,31 @@ exports.getProinBookingQuote = onMobileCall(
       });
       if (error) throw new HttpsError("failed-precondition", error);
       discountAmount = money(quoteSnapshot.data()?.discountAmount);
+    } else {
+      // Without a chosen offer, booking applies an eligible journey reward on
+      // its own. Price the points against that same discount, or the booking
+      // refuses points this quote allowed.
+      const visitCounts = await loadDiscountVisitCounts(
+        firestore,
+        uid,
+        salonId,
+        userSnapshot.data(),
+      );
+      const journeyQuote = await findBestActiveDiscountQuote(
+        firestore,
+        buildDiscountContext({
+          customerUid: uid,
+          salonId,
+          serviceIds,
+          serviceAmounts: Object.fromEntries(services.map((service, index) =>
+            [serviceIds[index], money(service.price)])),
+          originalAmount,
+          ...visitCounts,
+          nowMillis: Date.now(),
+        }),
+        {journeyOnly: true},
+      );
+      discountAmount = money(journeyQuote.discountAmount);
     }
     return runProinCallable(() => proinBackend.quoteBookingRedemption({
       uid,
@@ -3457,11 +3483,24 @@ exports.listCheckoutDiscountOffers = onMobileCall({
     uid,
     request.data || {},
   );
+  const offers = await findVisibleCheckoutDiscountOffers(
+    firestore,
+    checkout.context,
+  );
+  // Checkout selects the best offer by default. Locking its quote here lets
+  // the app price and book it without a separate apply request.
+  const bestOfferQuote = request.data?.lockBestOffer === true &&
+    request.data?.prefetchOnly !== true && offers.length > 0 ?
+    await persistDiscountQuote(firestore, {
+      uid,
+      salonId: checkout.salonId,
+      serviceIds: checkout.serviceIds,
+      originalAmount: checkout.originalAmount,
+      quote: offers[0],
+    }) : null;
   return {
-    offers: await findVisibleCheckoutDiscountOffers(
-      firestore,
-      checkout.context,
-    ),
+    offers,
+    ...(bestOfferQuote ? {bestOfferQuote} : {}),
   };
 });
 
@@ -7125,6 +7164,7 @@ function discountQuoteFromStored(data = {}) {
     discountAmount: money(data.discountAmount),
     customerPayableAmount: money(data.customerPayableAmount),
     pritzePayoutAmount: money(data.pritzePayoutAmount),
+    salonFirstVisitEarningAmount: money(data.salonFirstVisitEarningAmount),
     salonTotalEarning: money(data.salonTotalEarning),
     payoutMultiplierApplied: Number(data.payoutMultiplierApplied) || 0,
     salonPayoutPercentApplied: Number(data.salonPayoutPercentApplied) || 0,
@@ -7299,6 +7339,7 @@ function quoteForDiscountCampaign(campaignId, campaign, context, vault = {}) {
       effectiveCampaign.journeyMilestoneBookingNumber ||
         context.completedBookingCount + 1,
     ),
+    discountSalonFirstVisitEarning(campaign, context),
   );
 }
 
@@ -7606,6 +7647,7 @@ function discountBookingFields(quote) {
     discountAmount: quote.discountAmount,
     customerPayableAmount: quote.customerPayableAmount,
     pritzePayoutAmount: quote.pritzePayoutAmount,
+    salonFirstVisitEarningAmount: money(quote.salonFirstVisitEarningAmount),
     salonTotalEarning: quote.salonTotalEarning,
     payoutMultiplierApplied: Number(quote.payoutMultiplierApplied) || 0,
     salonPayoutPercentApplied:
@@ -7730,8 +7772,7 @@ function resolveReservedDiscountInTransaction({
     lastReleasedBookingId: bookingId,
     updatedAt: admin.firestore.FieldValue.serverTimestamp(),
   }, {merge: true});
-  const salonCreditLotsChanged =
-    isSalonPromotionCreditFundedDiscount(booking) &&
+  const salonCredit = isSalonPromotionCreditFundedDiscount(booking) ?
     resolveSalonPromotionCreditInTransaction({
       transaction,
       firestore,
@@ -7740,14 +7781,22 @@ function resolveReservedDiscountInTransaction({
       bookingId,
       outcome,
       fundingState,
-    });
+    }) : {lotsChanged: false, depositProin: 0};
 
-  if (!isRedeemed || payoutAmount <= 0) return salonCreditLotsChanged;
+  if (!isRedeemed || payoutAmount <= 0) return salonCredit.lotsChanged;
   const salonId = String(booking.salonId ?? "").trim();
+  // The part of the payout taken from a deposit Pritze already paid the salon
+  // is settled; only the rest (earned credit or the credit line) is owed.
+  const prepaidAmount = Math.min(payoutAmount, salonCredit.depositProin);
+  const owedAmount = payoutAmount - prepaidAmount;
   transaction.set(firestore.collection("salonWallets").doc(salonId), {
     salonId,
-    payableBalance: admin.firestore.FieldValue.increment(payoutAmount),
+    payableBalance: admin.firestore.FieldValue.increment(owedAmount),
     lifetimePritzeEarnings: admin.firestore.FieldValue.increment(payoutAmount),
+    ...(prepaidAmount > 0 ? {
+      prepaidFromDepositAmount:
+        admin.firestore.FieldValue.increment(prepaidAmount),
+    } : {}),
     updatedAt: admin.firestore.FieldValue.serverTimestamp(),
   }, {merge: true});
   transaction.set(firestore.collection("salonSettlements").doc(bookingId), {
@@ -7759,12 +7808,15 @@ function resolveReservedDiscountInTransaction({
     discountAmount,
     customerCounterAmount: money(booking.customerPayableAmount),
     pritzePayoutAmount: payoutAmount,
+    salonFirstVisitEarningAmount: money(booking.salonFirstVisitEarningAmount),
+    prepaidFromDepositAmount: prepaidAmount,
+    paidAmount: prepaidAmount,
     salonTotalEarning: money(booking.salonTotalEarning),
-    status: "payable",
+    status: owedAmount > 0 ? "payable" : "paid",
     createdAt: admin.firestore.FieldValue.serverTimestamp(),
     updatedAt: admin.firestore.FieldValue.serverTimestamp(),
   }, {merge: false});
-  return salonCreditLotsChanged;
+  return salonCredit.lotsChanged;
 }
 
 // Returns true when granted credit lots changed, so the caller can refresh the
@@ -7918,8 +7970,9 @@ function reserveSalonPromotionCreditInTransaction({
   return lotAllocations.length > 0;
 }
 
-// Returns true when granted credit lots changed, so the caller can refresh the
-// wallet's next-expiry summary after the booking commits.
+// Reports whether granted credit lots changed, so the caller can refresh the
+// wallet's next-expiry summary after the booking commits, and how much of a
+// redemption came from deposit credit Pritze has already paid the salon.
 function resolveSalonPromotionCreditInTransaction({
   transaction,
   firestore,
@@ -7930,7 +7983,7 @@ function resolveSalonPromotionCreditInTransaction({
   fundingState,
 }) {
   const payoutAmount = money(booking.pritzePayoutAmount);
-  if (payoutAmount <= 0) return false;
+  if (payoutAmount <= 0) return {lotsChanged: false, depositProin: 0};
   const isRedeemed = outcome === "redeemed";
   const reservation = fundingState?.salonCreditReservation;
   if (!reservation || reservation.status !== "reserved" ||
@@ -7961,6 +8014,7 @@ function resolveSalonPromotionCreditInTransaction({
     .map((lot) => [String(lot.id || ""), lot]));
   const timestamp = admin.firestore.FieldValue.serverTimestamp();
   const redeemedLotAllocations = [];
+  let depositProin = 0;
   for (const allocation of lotAllocations) {
     const lot = lotsById.get(allocation.lotId);
     if (!lot?.ref || money(lot.reservedProin) < allocation.amountProin) {
@@ -7974,6 +8028,7 @@ function resolveSalonPromotionCreditInTransaction({
         programId: lot.programId,
         amountProin: allocation.amountProin,
       });
+      if (lot.salonDeposit === true) depositProin += allocation.amountProin;
     }
     const reservedAfter = money(lot.reservedProin) - allocation.amountProin;
     const availableAfter = isRedeemed ?
@@ -8089,7 +8144,7 @@ function resolveSalonPromotionCreditInTransaction({
     walletId: refs.salonPromotionWalletRef.id,
     allocations: redeemedLotAllocations,
   });
-  return lotAllocations.length > 0;
+  return {lotsChanged: lotAllocations.length > 0, depositProin};
 }
 
 async function readDiscountResolutionFundingState({
@@ -8562,6 +8617,10 @@ function discountCampaignAdminView(campaignId, data = {}) {
       (Number(data.payoutMultiplier) || 2) * 100,
     salonPayoutPercentByBookingNumber:
       adminBookingPayoutPercentRules(data.salonPayoutPercentByBookingNumber),
+    salonFirstVisitEarningPercent:
+      Number(data.salonFirstVisitEarningPercent) || 0,
+    salonFirstVisitEarningMaximumAmount:
+      money(data.salonFirstVisitEarningMaximumAmount),
     cashbackProinAmount: money(data.cashbackProinAmount),
     cashbackValidityDays: money(data.cashbackValidityDays),
     cashbackTotalBudgetProin: money(data.cashbackTotalBudgetProin),

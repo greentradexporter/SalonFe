@@ -238,6 +238,10 @@ class CheckoutDiscountOffer {
   final int cashbackValidityDays;
   final DateTime? campaignEndsAt;
 
+  /// Set on the best offer only: its quote is already locked, so checkout
+  /// can select it by default without a separate apply request.
+  final DiscountQuote? lockedQuote;
+
   const CheckoutDiscountOffer({
     required this.campaignId,
     required this.campaignName,
@@ -251,9 +255,27 @@ class CheckoutDiscountOffer {
     this.cashbackProinAmount = 0,
     this.cashbackValidityDays = 0,
     this.campaignEndsAt,
+    this.lockedQuote,
   });
 
   bool get hasSaving => discountAmount > 0 && campaignId.isNotEmpty;
+
+  CheckoutDiscountOffer withLockedQuote(DiscountQuote quote) =>
+      CheckoutDiscountOffer(
+        campaignId: campaignId,
+        campaignName: campaignName,
+        discountType: discountType,
+        discountPercent: discountPercent,
+        fixedDiscountAmount: fixedDiscountAmount,
+        voucherMaskedCode: voucherMaskedCode,
+        originalAmount: originalAmount,
+        discountAmount: discountAmount,
+        customerPayableAmount: customerPayableAmount,
+        cashbackProinAmount: cashbackProinAmount,
+        cashbackValidityDays: cashbackValidityDays,
+        campaignEndsAt: campaignEndsAt,
+        lockedQuote: quote,
+      );
 
   String get offerLabel {
     if (discountType == 'fixed') return '₹$fixedDiscountAmount off';

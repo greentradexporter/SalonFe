@@ -169,3 +169,21 @@ test("one journey campaign validates independent booking rewards", () => {
     cashbackTotalBudgetProin: 100,
   })), /different booking number/i);
 });
+
+test("campaigns store the salon first-visit earning", () => {
+  const normalized = normalizeDiscountCampaignInput(validCampaign({
+    salonFirstVisitEarningPercent: 10,
+    salonFirstVisitEarningMaximumAmount: 50,
+  }));
+  assert.equal(normalized.salonFirstVisitEarningPercent, 10);
+  assert.equal(normalized.salonFirstVisitEarningMaximumAmount, 50);
+  const unset = normalizeDiscountCampaignInput(validCampaign());
+  assert.equal(unset.salonFirstVisitEarningPercent, 0);
+  assert.equal(unset.salonFirstVisitEarningMaximumAmount, 0);
+  assert.throws(
+    () => normalizeDiscountCampaignInput(validCampaign({
+      salonFirstVisitEarningPercent: 101,
+    })),
+    /first-visit earning percentage/,
+  );
+});

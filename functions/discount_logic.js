@@ -162,12 +162,24 @@ function discountBaseAmount(campaign, context) {
     );
 }
 
+// On a customer's first completed booking at a salon the salon earns a share
+// of the bill on top of its discount compensation, up to the campaign's cap.
+function discountSalonFirstVisitEarning(campaign, context) {
+  if (money(context?.salonCompletedCount) > 0) return 0;
+  const percent = Math.min(100, Number(campaign?.salonFirstVisitEarningPercent));
+  if (!Number.isFinite(percent) || percent <= 0) return 0;
+  const earning = Math.floor(money(context?.originalAmount) * percent / 100);
+  const maximum = money(campaign?.salonFirstVisitEarningMaximumAmount);
+  return maximum > 0 ? Math.min(earning, maximum) : earning;
+}
+
 function calculateDiscountQuote(
   campaignId,
   campaign,
   originalAmount,
   discountBase = originalAmount,
   payoutMultiplierOverride = null,
+  salonFirstVisitEarningAmount = 0,
 ) {
   const original = money(originalAmount);
   const eligibleAmount = Math.min(original, money(discountBase));
@@ -191,7 +203,9 @@ function calculateDiscountQuote(
     configuredMultiplier >= 0 ? configuredMultiplier :
     Number.isFinite(campaignMultiplier) && campaignMultiplier > 0 ?
       campaignMultiplier : DEFAULT_SALON_DISCOUNT_BURN_MULTIPLIER;
-  const pritzePayoutAmount = Math.floor(discountAmount * payoutMultiplier);
+  const salonFirstVisitEarning = money(salonFirstVisitEarningAmount);
+  const pritzePayoutAmount = Math.floor(discountAmount * payoutMultiplier) +
+    salonFirstVisitEarning;
   const cashbackProinAmount = money(campaign.cashbackProinAmount);
   return {
     campaignId,
@@ -221,6 +235,7 @@ function calculateDiscountQuote(
       journeyCountScope: campaign.journeyCountScope === "salon" ?
         "salon" : "platform",
     } : {}),
+    salonFirstVisitEarningAmount: salonFirstVisitEarning,
     pritzePayoutAmount,
     salonTotalEarning: original - discountAmount + pritzePayoutAmount,
   };
@@ -303,6 +318,7 @@ function emptyDiscountQuote(originalAmount) {
     cashbackProinAmount: 0,
     cashbackValidityDays: 0,
     cashbackProgramId: "",
+    salonFirstVisitEarningAmount: 0,
     pritzePayoutAmount: 0,
     salonTotalEarning: original,
   };
@@ -349,6 +365,7 @@ module.exports = {
   discountJourneyBookingNumber,
   discountFundingSource,
   discountPayoutMultiplier,
+  discountSalonFirstVisitEarning,
   discountSalonPromotionCreditLimit,
   emptyDiscountQuote,
   money,

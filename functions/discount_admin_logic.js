@@ -84,6 +84,15 @@ function normalizeDiscountCampaignInput(input = {}) {
     input.salonPayoutPercentByBookingNumber,
   );
   const payoutMultiplier = Math.round(salonPayoutPercent * 100) / 10000;
+  const salonFirstVisitEarningPercent = decimal(
+    input.salonFirstVisitEarningPercent ?? 0,
+    "Salon first-visit earning percentage",
+    {minimum: 0, maximum: 100},
+  );
+  const salonFirstVisitEarningMaximumAmount = integer(
+    input.salonFirstVisitEarningMaximumAmount ?? 0,
+    "Salon first-visit earning cap",
+  );
   const startsAtMillis = optionalMillis(input.startsAtMillis, "Start date");
   const endsAtMillis = optionalMillis(input.endsAtMillis, "End date");
   if (startsAtMillis > 0 && endsAtMillis > 0 && endsAtMillis <= startsAtMillis) {
@@ -178,6 +187,8 @@ function normalizeDiscountCampaignInput(input = {}) {
     payoutMultiplier,
     salonPayoutPercent,
     salonPayoutPercentByBookingNumber,
+    salonFirstVisitEarningPercent,
+    salonFirstVisitEarningMaximumAmount,
     cashbackProinAmount,
     cashbackValidityDays,
     cashbackTotalBudgetProin,

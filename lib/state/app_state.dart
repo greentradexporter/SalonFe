@@ -1148,6 +1148,18 @@ class AppState extends ChangeNotifier {
       if (discountCompare != 0) return discountCompare;
       return left.campaignName.compareTo(right.campaignName);
     });
+    if (prefetchOnly || offers.isEmpty) return offers;
+    try {
+      final best = await applyVisibleCheckoutDiscount(
+        salonId: salonId,
+        serviceIds: ids,
+        campaignId: offers.first.campaignId,
+      );
+      final quote = best.discountQuote;
+      if (quote != null) offers[0] = offers.first.withLockedQuote(quote);
+    } on StateError {
+      // The list still shows; the customer can choose an offer themselves.
+    }
     return offers;
   }
 
@@ -4860,6 +4872,9 @@ class FirebaseAppState extends AppState with WidgetsBindingObserver {
                 'salonId': salonId,
                 'serviceIds': ids,
                 if (prefetchOnly) 'prefetchOnly': true,
+                // Checkout selects the best offer by default, so the server
+                // locks that offer's quote along with the list.
+                if (!prefetchOnly) 'lockBestOffer': true,
               }),
         );
     late final HttpsCallableResult<Map<String, dynamic>> response;
@@ -4872,11 +4887,21 @@ class FirebaseAppState extends AppState with WidgetsBindingObserver {
     }
     final offers = response.data['offers'];
     if (offers is! List) return const [];
-    return offers
+    final parsed = offers
         .whereType<Map>()
         .map((value) => _checkoutDiscountOfferFromData(value))
         .where((offer) => offer.hasSaving)
-        .toList(growable: false);
+        .toList();
+    final bestOfferQuoteData = response.data['bestOfferQuote'];
+    if (parsed.isNotEmpty && bestOfferQuoteData is Map) {
+      final quote = _discountQuoteFromData(
+        Map<String, dynamic>.from(bestOfferQuoteData),
+      );
+      if (quote.campaignId == parsed.first.campaignId && quote.hasDiscount) {
+        parsed[0] = parsed.first.withLockedQuote(quote);
+      }
+    }
+    return List.unmodifiable(parsed);
   }
 
   @override

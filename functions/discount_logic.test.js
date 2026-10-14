@@ -10,6 +10,7 @@ const {
   discountCampaignForContext,
   discountCampaignSelectableAtCheckout,
   discountPayoutMultiplier,
+  discountSalonFirstVisitEarning,
   discountSalonPromotionCreditLimit,
 } = require("./discount_logic");
 
@@ -48,6 +49,7 @@ test("a ten-percent discount pays the salon twice the discount", () => {
     cashbackProinAmount: 0,
     cashbackValidityDays: 0,
     cashbackProgramId: "",
+    salonFirstVisitEarningAmount: 0,
     pritzePayoutAmount: 20,
     salonTotalEarning: 110,
   });
@@ -368,6 +370,38 @@ test("a salon's own credit limit decides its salon-funded discounts", () => {
     700,
   );
   assert.equal(discountSalonPromotionCreditLimit(undefined, undefined), 1000);
+});
+
+test("a salon earns 10% of the bill, up to Rs 50, on a first visit", () => {
+  const campaign = {
+    discountType: "percent",
+    discountPercent: 30,
+    maximumDiscountAmount: 50,
+    salonPayoutPercent: 100,
+    salonFirstVisitEarningPercent: 10,
+    salonFirstVisitEarningMaximumAmount: 50,
+  };
+  const firstVisit = {originalAmount: 100, salonCompletedCount: 0};
+  const earning = discountSalonFirstVisitEarning(campaign, firstVisit);
+  assert.equal(earning, 10);
+  // Pritze deposit 1000 - discount 30 - salon earning 10 = 960 left.
+  const quote = calculateDiscountQuote("journey", campaign, 100, 100, 1, earning);
+  assert.equal(quote.discountAmount, 30);
+  assert.equal(quote.salonFirstVisitEarningAmount, 10);
+  assert.equal(quote.pritzePayoutAmount, 40);
+  assert.equal(1000 - quote.pritzePayoutAmount, 960);
+  assert.equal(quote.customerPayableAmount, 70);
+  assert.equal(quote.salonTotalEarning, 110);
+
+  assert.equal(discountSalonFirstVisitEarning(campaign, {
+    originalAmount: 900,
+    salonCompletedCount: 0,
+  }), 50);
+  assert.equal(discountSalonFirstVisitEarning(campaign, {
+    originalAmount: 100,
+    salonCompletedCount: 1,
+  }), 0);
+  assert.equal(discountSalonFirstVisitEarning({}, firstVisit), 0);
 });
 
 test("platform-funded discounts still use the central vault only", () => {

@@ -150,11 +150,13 @@ test("customer and salon records have audited full-profile controls", () => {
   assert.match(source, /recordSalonSettlementPaymentAsAdmin/);
   assert.match(source, /Record external payment/);
   assert.match(source, /Settle full amount/);
-  assert.match(source, /Add promotional credit/);
+  assert.match(source, /Record Pritze deposit/);
+  assert.match(source, /program\.salonDeposit/);
+  assert.match(source, /Salon first-visit earning \(% of bill\)/);
   assert.match(source, /Payment method/);
   assert.match(source, /Bank transfer/);
   assert.match(source, /cash receipt or ledger reference/);
-  assert.match(source, /Add promotional credit when needed/);
+  assert.match(source, /Record a Pritze deposit when you pay a salon in advance/);
 });
 
 test("the authenticated Control Center includes a practical operating guide", () => {

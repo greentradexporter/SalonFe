@@ -4,9 +4,8 @@ const test = require("node:test");
 // Drives the real booking callables against the Firestore emulator, so the
 // salon-credit and Proin ledger steps are checked inside the same
 // transactions that run in production. No credentials or network are used.
-test("a salon-funded booking keeps the Proin ledger balanced end to end", {
-  skip: !process.env.FIRESTORE_EMULATOR_HOST,
-}, async (t) => {
+// Every test here shares one emulator project, so each uses its own IDs.
+function loadBookingFunctions(t) {
   process.env.GCLOUD_PROJECT = "demo-pritze-booking-ledger";
   const admin = require("firebase-admin");
   const {HttpsError} = require("firebase-functions/v2/https");
@@ -25,9 +24,18 @@ test("a salon-funded booking keeps the Proin ledger balanced end to end", {
     if (realMessaging) Object.defineProperty(admin, "messaging", realMessaging);
     else delete admin.messaging;
   });
+  return {
+    admin,
+    functions,
+    firestore: admin.firestore(),
+    backend: createProinBackend({admin, HttpsError}),
+  };
+}
 
-  const firestore = admin.firestore();
-  const backend = createProinBackend({admin, HttpsError});
+test("a salon-funded booking keeps the Proin ledger balanced end to end", {
+  skip: !process.env.FIRESTORE_EMULATOR_HOST,
+}, async (t) => {
+  const {admin, functions, firestore, backend} = loadBookingFunctions(t);
   const nowMillis = Date.now();
   const set = (path, data) => firestore.doc(path).set(data);
   await Promise.all([
@@ -70,6 +78,7 @@ test("a salon-funded booking keeps the Proin ledger balanced end to end", {
       fixedDiscountAmount: 50,
       totalPayoutBudget: 5000,
       maximumUsesPerCustomer: 10,
+      salonIds: ["salon-1"],
     }),
   ]);
 
@@ -304,4 +313,270 @@ test("a salon-funded booking keeps the Proin ledger balanced end to end", {
   );
   assert.equal((await adminSetsCreditLimit(60)).creditLimitProin, 60);
   await balanced();
+});
+
+// Shared fixtures for the deposit and checkout tests below.
+async function bookingFixture(
+  {admin, firestore, backend, functions},
+  suffix,
+  salons,
+) {
+  const set = (path, data) => firestore.doc(path).set(data);
+  const nowMillis = Date.now();
+  await set(`users/customer-${suffix}`, {
+    role: "customer",
+    activeRole: "customer",
+    name: `Customer ${suffix}`,
+    phone: `+9190000${String(suffix).padStart(5, "0")}`,
+    completedBookingCount: 0,
+  });
+  for (const salonId of salons) {
+    await Promise.all([
+      set(`users/owner-${salonId}`, {role: "owner", activeRole: "owner"}),
+      set(`users/barber-${salonId}`, {role: "barber", activeRole: "barber"}),
+      set(`salons/${salonId}`, {
+        ownerUid: `owner-${salonId}`,
+        isOpen: true,
+        approvalStatus: "approved",
+        instantBookingsEnabled: true,
+        openTime: "12:00 AM",
+        closeTime: "11:59 PM",
+        services: [{id: "cut", name: "Cut", price: 100, durationMinutes: 30}],
+      }),
+      set(`barbers/barber-${salonId}`, {
+        salonId,
+        uid: `barber-${salonId}`,
+        serviceIds: ["cut"],
+      }),
+    ]);
+  }
+  await set("platformFinance/discountVault", {
+    availableAmount: 50000,
+    reservedAmount: 0,
+    spentAmount: 0,
+  });
+  await backend.setFinanceBudget({
+    adminUid: "admin-1",
+    data: {approvedBudgetInr: 50000},
+    reason: "Approve booking test budget",
+  });
+  const program = (programId, overrides) => backend.upsertProgram({
+    adminUid: "admin-1",
+    reason: "Create booking test program",
+    data: {
+      programId,
+      name: programId,
+      sourceType: "manual",
+      qualificationEvent: "manual_approval",
+      active: true,
+      rewardValidityDays: 90,
+      totalBudgetProin: 100000,
+      maximumTotalGrants: 100,
+      maximumGrantsPerAccount: 100,
+      minimumBookingAmount: 0,
+      maximumRedemptionPercent: 25,
+      stackableWithDiscount: false,
+      startsAtMillis: nowMillis - 60_000,
+      endsAtMillis: nowMillis + 24 * 60 * 60 * 1000,
+      eligibleSalonIds: [],
+      eligibleServiceIds: [],
+      termsVersion: "booking-test-v1",
+      ...overrides,
+    },
+  });
+  const book = async (salonId, extra = {}) => (await functions(
+    "createBooking",
+    {
+      auth: {uid: `customer-${suffix}`},
+      data: {
+        salonId,
+        serviceId: "cut",
+        isInstant: true,
+        arrivalMinutes: 15,
+        ...extra,
+      },
+    },
+  )).bookingId;
+  const complete = async (salonId, bookingId) => {
+    for (const status of ["confirmed", "inProgress", "completed"]) {
+      await functions("updateBookingStatus", {
+        auth: {uid: `owner-${salonId}`},
+        data: {bookingId, status},
+      });
+    }
+  };
+  const bestOffer = async (salonId) => (await functions(
+    "listCheckoutDiscountOffers",
+    {
+      auth: {uid: `customer-${suffix}`},
+      data: {salonId, serviceIds: ["cut"], lockBestOffer: true},
+    },
+  )).bestOfferQuote;
+  const read = async (path) => (await firestore.doc(path).get()).data();
+  const grant = (programId, salonId, key, extra = {}) => backend.grantAsAdmin({
+    adminUid: "admin-1",
+    reason: "Grant booking test credit",
+    data: {
+      programId,
+      walletType: "salon_promotion_credits",
+      accountId: salonId,
+      idempotencyKey: `booking-test:${key}`,
+      ...extra,
+    },
+  });
+  return {set, program, book, complete, bestOffer, read, grant, nowMillis, admin};
+}
+
+test("a Pritze deposit pays for discounts and the first-visit earning", {
+  skip: !process.env.FIRESTORE_EMULATOR_HOST,
+}, async (t) => {
+  const loaded = loadBookingFunctions(t);
+  const call = (name, request) => loaded.functions[name].run(request);
+  const f = await bookingFixture(
+    {...loaded, functions: call},
+    7,
+    ["deposit-salon", "reward-salon"],
+  );
+  await f.set("discountCampaigns/first-visit-30", {
+    active: true,
+    name: "First visit 30%",
+    fundingSource: "salon_promotion_credits",
+    discountType: "percent",
+    discountPercent: 30,
+    maximumDiscountAmount: 50,
+    salonPayoutPercent: 100,
+    payoutMultiplier: 1,
+    salonFirstVisitEarningPercent: 10,
+    salonFirstVisitEarningMaximumAmount: 50,
+    totalPayoutBudget: 50000,
+    maximumUsesPerCustomer: 10,
+    salonIds: ["deposit-salon", "reward-salon"],
+  });
+  await f.program("test_salon_deposit", {
+    walletType: "salon_promotion_credits",
+    salonDeposit: true,
+    rewardAmountProin: 1000,
+    maximumProinPerBooking: 100000,
+  });
+  await f.program("test_salon_reward", {
+    walletType: "salon_promotion_credits",
+    rewardAmountProin: 100,
+    maximumProinPerBooking: 100,
+  });
+  await f.grant("test_salon_deposit", "deposit-salon", "deposit-1");
+  await f.grant("test_salon_reward", "reward-salon", "reward-1");
+  const depositWallet = await loaded.backend.salonWalletData({
+    salonId: "deposit-salon",
+  });
+  assert.equal(depositWallet.availableProin, 1000);
+
+  // First visit: Rs 100 bill, 30% off is Rs 30, and the salon earns Rs 10.
+  const firstQuote = await f.bestOffer("deposit-salon");
+  assert.equal(firstQuote.discountAmount, 30);
+  assert.equal(firstQuote.salonFirstVisitEarningAmount, 10);
+  assert.equal(firstQuote.pritzePayoutAmount, 40);
+  const first = await f.book("deposit-salon", {quoteId: firstQuote.quoteId});
+  await f.complete("deposit-salon", first);
+  // Deposit 1000 - discount 30 - salon earning 10 = 960, and nothing is owed.
+  assert.equal(
+    (await loaded.backend.salonWalletData({salonId: "deposit-salon"}))
+      .availableProin,
+    960,
+  );
+  const firstSettlement = await f.read(`salonSettlements/${first}`);
+  assert.equal(firstSettlement.pritzePayoutAmount, 40);
+  assert.equal(firstSettlement.salonFirstVisitEarningAmount, 10);
+  assert.equal(firstSettlement.prepaidFromDepositAmount, 40);
+  assert.equal(firstSettlement.paidAmount, 40);
+  assert.equal(firstSettlement.status, "paid");
+  const depositSalonWallet = await f.read("salonWallets/deposit-salon");
+  assert.equal(depositSalonWallet.payableBalance, 0);
+  assert.equal(depositSalonWallet.prepaidFromDepositAmount, 40);
+
+  // Second visit to the same salon: the discount only, no earning.
+  const secondQuote = await f.bestOffer("deposit-salon");
+  assert.equal(secondQuote.salonFirstVisitEarningAmount, 0);
+  assert.equal(secondQuote.pritzePayoutAmount, 30);
+  const second = await f.book("deposit-salon", {quoteId: secondQuote.quoteId});
+  await f.complete("deposit-salon", second);
+  assert.equal(
+    (await loaded.backend.salonWalletData({salonId: "deposit-salon"}))
+      .availableProin,
+    930,
+  );
+  assert.equal((await f.read(`salonSettlements/${second}`)).status, "paid");
+
+  // Credit a salon earned (not a deposit) is still paid out to the salon.
+  const rewardQuote = await f.bestOffer("reward-salon");
+  assert.equal(rewardQuote.salonFirstVisitEarningAmount, 10);
+  const third = await f.book("reward-salon", {quoteId: rewardQuote.quoteId});
+  await f.complete("reward-salon", third);
+  const owedSettlement = await f.read(`salonSettlements/${third}`);
+  assert.equal(owedSettlement.prepaidFromDepositAmount, 0);
+  assert.equal(owedSettlement.paidAmount, 0);
+  assert.equal(owedSettlement.status, "payable");
+  assert.equal((await f.read("salonWallets/reward-salon")).payableBalance, 40);
+
+  const report = await loaded.backend.reconcile();
+  assert.equal(report.status, "balanced", JSON.stringify(report));
+});
+
+test("points stay usable when booking applies an automatic journey offer", {
+  skip: !process.env.FIRESTORE_EMULATOR_HOST,
+}, async (t) => {
+  const loaded = loadBookingFunctions(t);
+  const call = (name, request) => loaded.functions[name].run(request);
+  const f = await bookingFixture(
+    {...loaded, functions: call},
+    8,
+    ["journey-salon"],
+  );
+  await f.set("discountCampaigns/journey-30", {
+    active: true,
+    name: "Journey",
+    fundingSource: "salon_promotion_credits",
+    salonPayoutPercent: 100,
+    payoutMultiplier: 1,
+    totalPayoutBudget: 50000,
+    maximumUsesPerCustomer: 3,
+    salonIds: ["journey-salon"],
+    journeyCountScope: "salon",
+    journeyMilestones: [{
+      bookingNumber: 1,
+      rewardType: "discount",
+      discountType: "percent",
+      discountPercent: 30,
+      maximumDiscountAmount: 50,
+    }],
+  });
+  // Website defaults: not stackable with a discount, 25% of the bill.
+  await f.program("test_customer_points", {
+    walletType: "customer_rewards",
+    rewardAmountProin: 100,
+    maximumProinPerBooking: 100,
+  });
+  await loaded.backend.grantAsAdmin({
+    adminUid: "admin-1",
+    reason: "Grant booking test points",
+    data: {
+      programId: "test_customer_points",
+      walletType: "customer_rewards",
+      accountId: "customer-8",
+      idempotencyKey: "booking-test:points-8",
+    },
+  });
+  // No offer chosen: booking will apply the journey, so the quote must
+  // already account for it instead of promising points booking refuses.
+  const quote = await call("getProinBookingQuote", {
+    auth: {uid: "customer-8"},
+    data: {salonId: "journey-salon", serviceIds: ["cut"]},
+  });
+  assert.equal(quote.discountAmount, 30);
+  assert.equal(quote.allocatedProin, 0);
+  const bookingId = await f.book("journey-salon", {
+    requestedProin: quote.allocatedProin,
+  });
+  const booking = await f.read(`bookings/${bookingId}`);
+  assert.equal(booking.discountAmount, 30);
+  assert.equal(booking.customerPayableAmount, 70);
 });

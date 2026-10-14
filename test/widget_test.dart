@@ -778,10 +778,9 @@ void main() {
         300,
         scrollable: find.byType(Scrollable).first,
       );
-      await tester.tap(find.text('First visit discount'));
-      await tester.pumpAndSettle();
+      // Back from sign-in, the best offer is already selected for review.
       expect(
-        find.text('First visit discount applied. You save ₹40.'),
+        find.text('Best offer applied: First visit discount. You save ₹40.'),
         findsOneWidget,
       );
       await tester.tap(find.text('Request instant booking'));
@@ -939,7 +938,7 @@ void main() {
     },
   );
 
-  testWidgets('booking checkout shows visible discounts before booking', (
+  testWidgets('booking checkout selects the best visible discount by default', (
     tester,
   ) async {
     await tester.binding.setSurfaceSize(const Size(390, 900));
@@ -974,22 +973,37 @@ void main() {
       420,
       scrollable: find.byType(Scrollable).first,
     );
-    expect(find.text('View applicable offers'), findsOneWidget);
-    expect(find.text('Visible SAVE20'), findsNothing);
+    // The best offer is already selected; the customer did not have to tap.
+    expect(
+      find.text('Best offer applied: Visible SAVE20. You save ₹40.'),
+      findsOneWidget,
+    );
+    expect(find.text('Visible SAVE20 discount'), findsOneWidget);
+    expect(find.text('-₹40'), findsOneWidget);
+    expect(find.text('₹160'), findsOneWidget);
+
     await tester.tap(
       find.byKey(const ValueKey('checkout-visible-discount-offers-toggle')),
     );
     await tester.pumpAndSettle();
     expect(find.text('Visible SAVE20'), findsOneWidget);
     expect(find.text('Save ₹40 · Pay ₹160'), findsOneWidget);
+    expect(
+      find.descendant(of: visibleOfferCard, matching: find.text('Applied')),
+      findsOneWidget,
+    );
 
-    await tester.tap(find.text('Visible SAVE20'));
+    // The customer can still turn the default offer off.
+    final remove = find.text('Remove');
+    await tester.ensureVisible(remove);
     await tester.pumpAndSettle();
-
-    expect(find.text('Visible SAVE20 applied. You save ₹40.'), findsOneWidget);
-    expect(find.text('Visible SAVE20 discount'), findsOneWidget);
-    expect(find.text('-₹40'), findsOneWidget);
-    expect(find.text('₹160'), findsOneWidget);
+    await tester.tap(remove);
+    await tester.pumpAndSettle();
+    expect(find.text('Visible SAVE20 discount'), findsNothing);
+    expect(
+      find.text('Best offer applied: Visible SAVE20. You save ₹40.'),
+      findsNothing,
+    );
   });
 
   testWidgets('guest discount prompt opens sign-in without starting booking', (
@@ -1056,51 +1070,59 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byKey(const ValueKey('booking-use-proin-switch')));
-    await tester.pumpAndSettle();
-    expect(
-      tester
-          .widget<Checkbox>(
-            find.byKey(const ValueKey('booking-use-proin-switch')),
-          )
-          .value,
-      isTrue,
+    final proinSwitchFinder = find.byKey(
+      const ValueKey('booking-use-proin-switch'),
     );
+    final scrollable = find.byType(Scrollable).first;
+    Future<void> reveal(Finder finder, double delta) async {
+      if (finder.evaluate().isEmpty) {
+        await tester.scrollUntilVisible(finder, delta, scrollable: scrollable);
+      }
+      await tester.ensureVisible(finder);
+      await tester.pumpAndSettle();
+    }
 
+    final discountAmount = (service.price * 0.2).floor();
+    final afterDiscount = service.price - discountAmount;
+    final proinAmount = (afterDiscount * 0.25).floor();
+    Future<void> expectDiscountAndProin() async {
+      // The price summary sits above the offers and may be scrolled away.
+      await reveal(find.text('Stacked SAVE20 discount'), -200);
+      expect(find.text('Stacked SAVE20 discount'), findsOneWidget);
+      expect(find.text('Proin used'), findsOneWidget);
+      expect(
+        find.text('-₹$discountAmount'),
+        discountAmount == proinAmount ? findsNWidgets(2) : findsOneWidget,
+      );
+      if (discountAmount != proinAmount) {
+        expect(find.text('-₹$proinAmount'), findsOneWidget);
+      }
+      expect(find.text('₹${afterDiscount - proinAmount}'), findsOneWidget);
+      await reveal(proinSwitchFinder, -200);
+      expect(tester.widget<Checkbox>(proinSwitchFinder).value, isTrue);
+    }
+
+    // Discount first: the best offer is selected by default, then Proin.
+    expect(find.text('Stacked SAVE20 discount'), findsOneWidget);
+    await tester.tap(proinSwitchFinder);
+    await tester.pumpAndSettle();
+    await expectDiscountAndProin();
+
+    // Proin first: remove the offer, keep Proin, then choose the offer again.
+    final remove = find.text('Remove');
+    await reveal(remove, 200);
+    await tester.tap(remove);
+    await tester.pumpAndSettle();
+    expect(find.text('Stacked SAVE20 discount'), findsNothing);
     final offerToggle = find.byKey(
       const ValueKey('checkout-visible-discount-offers-toggle'),
     );
-    await tester.scrollUntilVisible(
-      offerToggle,
-      420,
-      scrollable: find.byType(Scrollable).first,
-    );
+    await reveal(offerToggle, 200);
     await tester.tap(offerToggle);
     await tester.pumpAndSettle();
     await tester.tap(find.text('Stacked SAVE20'));
     await tester.pumpAndSettle();
-
-    expect(
-      tester
-          .widget<Checkbox>(
-            find.byKey(const ValueKey('booking-use-proin-switch')),
-          )
-          .value,
-      isTrue,
-    );
-    expect(find.text('Stacked SAVE20 discount'), findsOneWidget);
-    expect(find.text('Proin used'), findsOneWidget);
-    final discountAmount = (service.price * 0.2).floor();
-    final afterDiscount = service.price - discountAmount;
-    final proinAmount = (afterDiscount * 0.25).floor();
-    expect(
-      find.text('-₹$discountAmount'),
-      discountAmount == proinAmount ? findsNWidgets(2) : findsOneWidget,
-    );
-    if (discountAmount != proinAmount) {
-      expect(find.text('-₹$proinAmount'), findsOneWidget);
-    }
-    expect(find.text('₹${afterDiscount - proinAmount}'), findsOneWidget);
+    await expectDiscountAndProin();
 
     final proinSwitch = find.byKey(const ValueKey('booking-use-proin-switch'));
     final ensureProinVisible = Scrollable.ensureVisible(
