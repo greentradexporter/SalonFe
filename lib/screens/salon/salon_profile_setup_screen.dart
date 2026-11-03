@@ -539,6 +539,15 @@ class _SalonProfileSetupScreenState extends State<SalonProfileSetupScreen> {
       helpText: controller == _openTimeController
           ? 'SELECT OPENING TIME'
           : 'SELECT CLOSING TIME',
+      // The dial otherwise follows the phone's own clock setting, so an owner
+      // with a 24-hour phone picked from a 24-hour dial while every label in
+      // the app reads 12-hour.
+      builder: (context, child) => MediaQuery(
+        data: MediaQuery.of(
+          context,
+        ).copyWith(alwaysUse24HourFormat: false),
+        child: child ?? const SizedBox.shrink(),
+      ),
     );
     if (selected == null || !mounted) {
       return;

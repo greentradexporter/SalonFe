@@ -16,6 +16,7 @@ import 'widgets/trimtime_logo.dart';
 import 'widgets/customer_booking_confirmation_gate.dart';
 import 'widgets/ios_owner_booking_request_gate.dart';
 import 'widgets/app_update_prompt.dart';
+import 'widgets/device_setup_gate.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -108,11 +109,14 @@ class _TrimtimeAppState extends State<TrimtimeApp> {
       // them in `home` silently disabled popups after the first navigation.
       builder: (context, child) => AppUpdatePrompt(
         navigatorKey: _navigatorKey,
-        child: IosOwnerBookingRequestGate(
+        child: DeviceSetupGate(
+          navigatorKey: _navigatorKey,
+          child: IosOwnerBookingRequestGate(
           navigatorKey: _navigatorKey,
           child: CustomerBookingConfirmationGate(
             navigatorKey: _navigatorKey,
-            child: child ?? const SizedBox.shrink(),
+              child: child ?? const SizedBox.shrink(),
+            ),
           ),
         ),
       ),

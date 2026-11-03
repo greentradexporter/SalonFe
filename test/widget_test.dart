@@ -1379,12 +1379,187 @@ void main() {
     expect(find.text('Update available'), findsOneWidget);
   });
 
+  test('scheduled slots sit on the half hour, an hour ahead', () {
+    // Opening the app at 1:13 offers 2:30 - an hour's notice, then rounded up
+    // to the next half hour, never 2:13 or 2:00.
+    expect(
+      earliestBookableStart(DateTime(2026, 5, 1, 13, 13)),
+      DateTime(2026, 5, 1, 14, 30),
+    );
+    // Exactly on a half hour after the hour's notice: keep it.
+    expect(
+      earliestBookableStart(DateTime(2026, 5, 1, 13, 30)),
+      DateTime(2026, 5, 1, 14, 30),
+    );
+    // Rounding up crosses the hour correctly.
+    expect(
+      earliestBookableStart(DateTime(2026, 5, 1, 13, 45)),
+      DateTime(2026, 5, 1, 15, 0),
+    );
+    expect(
+      roundUpToHalfHour(DateTime(2026, 5, 1, 9, 0)),
+      DateTime(2026, 5, 1, 9, 0),
+    );
+    expect(
+      roundUpToHalfHour(DateTime(2026, 5, 1, 9, 1)),
+      DateTime(2026, 5, 1, 9, 30),
+    );
+    expect(
+      roundUpToHalfHour(DateTime(2026, 5, 1, 9, 31)),
+      DateTime(2026, 5, 1, 10, 0),
+    );
+
+    // A salon opening off the half hour still offers clock times.
+    expect(firstSlotMinuteOfDay(9 * 60), 9 * 60);
+    expect(firstSlotMinuteOfDay(9 * 60 + 15), 9 * 60 + 30);
+    expect(firstSlotMinuteOfDay(9 * 60 + 45), 10 * 60);
+
+    expect(scheduledBookingLeadTime, const Duration(hours: 1));
+    expect(scheduledBookingHorizonDays, 7);
+  });
+
+  test('a booked barber is held for an hour, or longer if the service is', () {
+    final start = DateTime(2026, 5, 1, 14, 0);
+    // A short service still blocks the barber for the full hour.
+    expect(barberBusyUntil(start, 30), DateTime(2026, 5, 1, 15, 0));
+    expect(barberBusyUntil(start, 60), DateTime(2026, 5, 1, 15, 0));
+    // A long one runs past the cooldown, and must never be cut short.
+    expect(barberBusyUntil(start, 90), DateTime(2026, 5, 1, 15, 30));
+    // A missing duration falls back to the default rather than freeing them.
+    expect(barberBusyUntil(start, 0), DateTime(2026, 5, 1, 15, 0));
+  });
+
+  test('the alert listener waits for the salon, then starts', () {
+    bool run({
+      bool isOwner = true,
+      bool hasOwnerAccount = true,
+      bool salonLoaded = true,
+      bool salonOpen = true,
+      bool instantBookingsEnabled = true,
+    }) => shouldRunOwnerAlertService(
+      isOwner: isOwner,
+      hasOwnerAccount: hasOwnerAccount,
+      salonLoaded: salonLoaded,
+      salonOpen: salonOpen,
+      instantBookingsEnabled: instantBookingsEnabled,
+    );
+
+    expect(run(), isTrue);
+    // The salon arrives after the account. Deciding once, before it loads,
+    // left the listener off for the whole session - which is why no
+    // "Ready for booking requests" notification ever appeared.
+    expect(run(salonLoaded: false), isFalse);
+    expect(run(salonOpen: false), isFalse);
+    expect(run(instantBookingsEnabled: false), isFalse);
+    expect(run(isOwner: false), isFalse);
+    expect(run(hasOwnerAccount: false), isFalse);
+  });
+
+  test('a registered phone is not written to its profile again', () {
+    const token = 'token-a';
+    Map<String, dynamic> owner([Map<String, dynamic> changes = const {}]) => {
+      'fcmTokens': [token],
+      'ownerAlertV4Tokens': [token],
+      'ownerAlertV3Tokens': <String>[],
+      'notificationsEnabled': true,
+      'ownerNotificationsEnabled': true,
+      'activeRole': 'owner',
+      ...changes,
+    };
+    bool current(Map<String, dynamic> profile, {bool isOwner = true}) =>
+        isMessagingRegistrationCurrent(
+          profile,
+          token: token,
+          isOwnerSession: isOwner,
+        );
+
+    // The registration's own write changes the profile, and the profile
+    // listener registers again on every change. Unless an unchanged profile
+    // is recognised, each write asks for the next one, without end.
+    expect(current(owner()), isTrue);
+    // Another phone on the same account writing its own details is not a
+    // reason to write back, or two phones would take turns forever.
+    expect(
+      current(owner({'lastFcmToken': 'token-b', 'appBuildNumber': 1})),
+      isTrue,
+    );
+    // Real drift still re-registers: a dropped token, a sign-out elsewhere,
+    // or a profile that no longer routes owner alerts.
+    expect(current(owner({'ownerAlertV4Tokens': <String>[]})), isFalse);
+    expect(current(owner({'fcmTokens': <String>[]})), isFalse);
+    expect(
+      current(
+        owner({
+          'ownerAlertV3Tokens': [token],
+        }),
+      ),
+      isFalse,
+    );
+    expect(current(owner({'notificationsEnabled': false})), isFalse);
+    expect(current(owner({'ownerNotificationsEnabled': false})), isFalse);
+    expect(current(owner({'activeRole': 'customer'})), isFalse);
+    expect(current(const {}), isFalse);
+    // A customer is current when it is kept off the owner alert list.
+    expect(
+      current(
+        owner({
+          'ownerAlertV4Tokens': <String>[],
+          'ownerNotificationsEnabled': false,
+          'activeRole': 'customer',
+        }),
+        isOwner: false,
+      ),
+      isTrue,
+    );
+    expect(current(owner(), isOwner: false), isFalse);
+  });
+
+  test('notifications are re-requested after an update, never when on', () {
+    // The ask-once-ever rule left owners who dismissed the prompt on an older
+    // build permanently silent, which is how phones ended up with
+    // notifications off and no way back.
+    for (final status in [
+      AuthorizationStatus.authorized,
+      AuthorizationStatus.provisional,
+    ]) {
+      for (final asked in [true, false]) {
+        expect(
+          shouldRequestPushPermission(
+            status,
+            isAndroid: true,
+            hasRequestedForThisBuild: asked,
+          ),
+          isFalse,
+          reason: 'never interrupt an owner whose notifications already work',
+        );
+      }
+    }
+    // Denied and not yet asked on this build: ask again after the update.
+    expect(
+      shouldRequestPushPermission(
+        AuthorizationStatus.denied,
+        isAndroid: true,
+        hasRequestedForThisBuild: false,
+      ),
+      isTrue,
+    );
+    // Already asked on this build: do not nag on every launch.
+    expect(
+      shouldRequestPushPermission(
+        AuthorizationStatus.denied,
+        isAndroid: true,
+        hasRequestedForThisBuild: true,
+      ),
+      isFalse,
+    );
+  });
+
   test('push permission policy handles iOS and Android first launch', () {
     expect(
       shouldRequestPushPermission(
         AuthorizationStatus.notDetermined,
         isAndroid: false,
-        hasRequestedOnAndroid: false,
+        hasRequestedForThisBuild: false,
       ),
       isTrue,
     );
@@ -1392,7 +1567,7 @@ void main() {
       shouldRequestPushPermission(
         AuthorizationStatus.authorized,
         isAndroid: false,
-        hasRequestedOnAndroid: false,
+        hasRequestedForThisBuild: false,
       ),
       isFalse,
     );
@@ -1400,7 +1575,7 @@ void main() {
       shouldRequestPushPermission(
         AuthorizationStatus.denied,
         isAndroid: false,
-        hasRequestedOnAndroid: false,
+        hasRequestedForThisBuild: false,
       ),
       isFalse,
     );
@@ -1408,7 +1583,7 @@ void main() {
       shouldRequestPushPermission(
         AuthorizationStatus.denied,
         isAndroid: true,
-        hasRequestedOnAndroid: false,
+        hasRequestedForThisBuild: false,
       ),
       isTrue,
     );
@@ -1416,7 +1591,7 @@ void main() {
       shouldRequestPushPermission(
         AuthorizationStatus.denied,
         isAndroid: true,
-        hasRequestedOnAndroid: true,
+        hasRequestedForThisBuild: true,
       ),
       isFalse,
     );
@@ -1758,8 +1933,23 @@ void main() {
           .instantOnly,
       isFalse,
     );
-    expect(find.text('Available slots'), findsOneWidget);
-    expect(find.text('Choose barber'), findsNothing);
+    // The barber picked on the salon page arrives ticked, with the other
+    // choices still there to switch to, and the slots just below.
+    await tester.scrollUntilVisible(
+      find.text('Available slots'),
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
+    expect(find.text('Choose barber'), findsOneWidget);
+    final ravi = state.barbersForSalon(state.ownerSalon.id).single.id;
+    expect(
+      find.descendant(
+        of: find.byKey(ValueKey('barber-choice-$ravi')),
+        matching: find.byIcon(Icons.check_circle),
+      ),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey('barber-choice-any')), findsOneWidget);
     expect(find.text('Request instant booking'), findsNothing);
   });
 
@@ -2099,7 +2289,7 @@ void main() {
     expect(find.textContaining('+919876500011'), findsOneWidget);
   });
 
-  test('a turned-away customer can book from 30 minutes out', () async {
+  test('a turned-away customer can book from an hour out', () async {
     final state = await _stateWithSalonService(signOut: false);
     final service = state.ownerSalon.services.single;
     await state.updateOwnerSalon(
@@ -2121,7 +2311,7 @@ void main() {
 
     // The rejection dialog offers this salon's next slot, so the shortest
     // notice a salon can be given is also how soon that offer can start.
-    expect(scheduledBookingLeadTime, const Duration(minutes: 30));
+    expect(scheduledBookingLeadTime, const Duration(hours: 1));
 
     final slots = state.slotsForService(state.ownerSalon.id, service.id);
     expect(slots, isNotEmpty);
@@ -2132,11 +2322,28 @@ void main() {
       isFalse,
       reason: 'no slot may start inside the lead time',
     );
-    // A 45-minute lead would have pushed the first slot past this bound.
+    // Every offered slot sits on a clock half hour.
+    expect(earliest.minute % 30, 0, reason: 'slots are :00 or :30');
+    expect(earliest.second, 0);
+    // The first one follows soon after the lead time rather than much later.
     expect(
-      earliest.isBefore(now.add(const Duration(minutes: 90))),
+      earliest.isBefore(now.add(const Duration(minutes: 120))),
       isTrue,
       reason: 'the first slot should be reachable soon after the lead time',
+    );
+    // Nothing is offered beyond the booking horizon.
+    expect(
+      slots.last.start.isBefore(
+        now.add(const Duration(days: scheduledBookingHorizonDays)),
+      ),
+      isTrue,
+      reason: 'slots stop at the horizon',
+    );
+    // Every slot, not just the first, lands on a half hour.
+    expect(
+      slots.every((slot) => slot.start.minute % 30 == 0),
+      isTrue,
+      reason: 'a salon opening off the half hour must not shift the grid',
     );
   });
 
@@ -2166,10 +2373,7 @@ void main() {
       AppStateProvider(
         createAppState: () => state,
         child: MaterialApp(
-          home: SalonBookingScreen(
-            salonId: salonId,
-            serviceId: service.id,
-          ),
+          home: SalonBookingScreen(salonId: salonId, serviceId: service.id),
         ),
       ),
     );
@@ -2544,6 +2748,142 @@ void main() {
     expect(find.text('Sign in and review discounts'), findsOneWidget);
     expect(tester.takeException(), isNull);
     debugDefaultTargetPlatformOverride = null;
+  });
+
+  testWidgets('every barber stays selectable after one is chosen', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(428, 926));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final state = await _stateWithSalonService(signOut: false);
+    final salonId = state.ownerSalon.id;
+    final service = state.ownerSalon.services.single;
+    final ids = <String>[];
+    for (final (name, phone) in [
+      ('Asha', '9888888831'),
+      ('Bilal', '9888888832'),
+    ]) {
+      await state.addOwnerBarber(
+        name: name,
+        phone: phone,
+        speciality: 'Haircuts',
+        experienceYears: 3,
+        resumeSummary: 'Haircuts.',
+        serviceIds: [service.id],
+      );
+      ids.add(state.barbersForSalon(salonId).last.id);
+    }
+    await state.signOutActiveUser();
+
+    await tester.pumpWidget(
+      AppStateProvider(
+        createAppState: () => state,
+        child: MaterialApp(
+          home: SalonBookingScreen(salonId: salonId, serviceId: service.id),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.scrollUntilVisible(
+      find.text('Choose barber'),
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.pumpAndSettle();
+    Finder card(String key) => find.byKey(ValueKey('barber-choice-$key'));
+    bool ticked(String key) => tester.any(
+      find.descendant(of: card(key), matching: find.byIcon(Icons.check_circle)),
+    );
+    Future<void> tap(String key) async {
+      // Choosing a barber further along scrolls the row, which can leave
+      // "Any available" partly past the left edge; bring it back first.
+      await tester.ensureVisible(card(key));
+      await tester.pumpAndSettle();
+      await tester.tap(card(key));
+      await tester.pumpAndSettle();
+    }
+
+    expect(ticked('any'), isTrue);
+    await tap(ids[0]);
+    // The choices used to be replaced by a single "Booking with" card here,
+    // leaving no way to switch without leaving the page.
+    for (final key in ['any', ...ids]) {
+      expect(card(key), findsOneWidget, reason: '$key must stay on screen');
+    }
+    expect(find.textContaining('Booking with'), findsNothing);
+    expect(ticked(ids[0]), isTrue);
+    expect(ticked('any'), isFalse);
+
+    // Switching barber moves the tick.
+    await tap(ids[1]);
+    expect(ticked(ids[1]), isTrue);
+    expect(ticked(ids[0]), isFalse);
+
+    // Tapping the ticked card again keeps it chosen.
+    await tap(ids[1]);
+    expect(ticked(ids[1]), isTrue);
+
+    // And "Any available" is one tap away.
+    await tap('any');
+    expect(ticked('any'), isTrue);
+    expect(ticked(ids[1]), isFalse);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('a barber chosen before the page opened is ticked and in view', (
+    tester,
+  ) async {
+    // Narrow enough that the last of four barbers starts off screen.
+    await tester.binding.setSurfaceSize(const Size(360, 800));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final state = await _stateWithSalonService(signOut: false);
+    final salonId = state.ownerSalon.id;
+    final service = state.ownerSalon.services.single;
+    for (var i = 0; i < 4; i++) {
+      await state.addOwnerBarber(
+        name: 'Barber $i',
+        phone: '98888888${40 + i}',
+        speciality: 'Haircuts',
+        experienceYears: 3,
+        resumeSummary: 'Haircuts.',
+        serviceIds: [service.id],
+      );
+    }
+    final last = state.barbersForSalon(salonId).last.id;
+    await state.signOutActiveUser();
+
+    await tester.pumpWidget(
+      AppStateProvider(
+        createAppState: () => state,
+        child: MaterialApp(
+          home: SalonBookingScreen(
+            salonId: salonId,
+            serviceId: service.id,
+            initialBarberId: last,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.text('Choose barber'),
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.pumpAndSettle();
+
+    final chosen = find.byKey(ValueKey('barber-choice-$last'));
+    expect(chosen, findsOneWidget);
+    expect(
+      find.descendant(of: chosen, matching: find.byIcon(Icons.check_circle)),
+      findsOneWidget,
+    );
+    // Fully on screen, not scrolled past the edge of the row.
+    final rect = tester.getRect(chosen);
+    expect(rect.left, greaterThanOrEqualTo(0));
+    expect(rect.right, lessThanOrEqualTo(360));
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('scheduled booking exposes a horizontal 30-day calendar', (

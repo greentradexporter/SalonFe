@@ -15,10 +15,21 @@ void main() {
     _expectValidWaveFile(iosSound);
     _expectValidWaveFile(androidSound);
 
+    // A scheduled booking gets its own tone so the owner can tell it from an
+    // instant request by ear, but it rings once: no insistent flag, no
+    // full-screen intent, no alarm stream.
+    final scheduledSoundAndroid = File(
+      'android/app/src/main/res/raw/scheduled_booking_request.wav',
+    );
+    final scheduledSoundIos = File('ios/Runner/scheduled_booking_request.wav');
+    expect(scheduledSoundAndroid.existsSync(), isTrue);
+    expect(scheduledSoundIos.existsSync(), isTrue);
+    _expectShortWaveFile(scheduledSoundAndroid);
     final androidKeepRule = File(
       'android/app/src/main/res/raw/keep.xml',
     ).readAsStringSync();
     expect(androidKeepRule, contains('@raw/owner_booking_request'));
+    expect(androidKeepRule, contains('@raw/scheduled_booking_request'));
 
     final project = File(
       'ios/Runner.xcodeproj/project.pbxproj',
@@ -49,16 +60,64 @@ void main() {
           .length,
       1,
     );
-    // The alarm stream, so a phone on silent still rings.
+    // The ring is played natively, on the alarm stream so a phone on silent
+    // still rings, and looping until it is answered or times out. A channel
+    // sound is the phone's to decide - Xiaomi ships it switched off - so the
+    // alert was shown but never heard.
+    final ringer = File(
+      'android/app/src/main/kotlin/com/example/nashik_salon_booking/'
+      'OwnerAlertRinger.kt',
+    ).readAsStringSync();
+    expect(ringer, contains('AudioAttributes.USAGE_ALARM'));
+    expect(ringer, contains('looping = true'));
+    expect(ringer, contains('R.raw.owner_booking_request'));
+    expect(ringer, contains('R.raw.scheduled_booking_request'));
+    // No deadline can make it ring past the server's two-minute window.
+    expect(ringer, contains('MAX_RING_MS = 130_000L'));
+    // Reads the same flags the Dart side writes, so a signed-out phone or an
+    // answered request never rings.
+    expect(ringer, contains('"pritze.notifications.ownerAlertsEnabled"'));
+    expect(ringer, contains('"pritze.notifications.ownerAlertStopped."'));
+    final pushReceiver = File(
+      'android/app/src/main/kotlin/com/example/nashik_salon_booking/'
+      'OwnerAlertPushReceiver.kt',
+    ).readAsStringSync();
+    expect(pushReceiver, contains('"stop_owner_booking_alarm"'));
+    expect(pushReceiver, contains('OwnerAlertRinger.stop(bookingId)'));
+    final manifestRinger = File(
+      'android/app/src/main/AndroidManifest.xml',
+    ).readAsStringSync();
+    expect(manifestRinger, contains('android:name=".OwnerAlertPushReceiver"'));
     expect(
-      RegExp(r'audioAttributesUsage: AudioAttributesUsage\.alarm')
-          .allMatches(appState)
-          .length,
-      greaterThanOrEqualTo(2),
+      manifestRinger,
+      contains('android:permission="com.google.android.c2dm.permission.SEND"'),
     );
-    expect(appState, contains("'pritze_owner_booking_requests_v4'"));
+    // Both booking channels are silent, so the tone is never heard twice.
+    expect(
+      RegExp(r'playSound: false').allMatches(appState).length,
+      greaterThanOrEqualTo(3),
+    );
+    expect(appState, isNot(contains('AudioAttributesUsage.alarm')));
+    // Every way an alert ends in the app also stops the native ring.
+    expect(
+      RegExp(
+        r'Future<void> _cancelOwnerBookingNotifications\([^)]*\) async \{\s*'
+        r'(//[^\n]*\n\s*)*await OwnerAlertDeviceSettings\.stopAlertRing\(bookingId\);',
+      ).hasMatch(appState),
+      isTrue,
+    );
+    final mainActivityRinger = File(
+      'android/app/src/main/kotlin/com/example/nashik_salon_booking/'
+      'MainActivity.kt',
+    ).readAsStringSync();
+    expect(mainActivityRinger, contains('OwnerAlertRinger.stop(bookingId)'));
+    // The id now lives in one place, shared with the readiness check so both
+    // always mean the same channel.
+    expect(appState, contains('ownerBookingRequestChannelId'));
     expect(appState, contains('_legacyOwnerBookingRequestChannelIds'));
     expect(appState, contains("'ownerNotificationsEnabled': isOwnerSession"));
+    expect(appState, contains("'appVersion': appVersion"));
+    expect(appState, contains("'appBuildNumber': appBuildNumber"));
     // An owner whose stored role still says customer must still be treated as
     // an owner session, and the field the server routes on must be promoted.
     expect(
@@ -78,6 +137,9 @@ void main() {
       'notificationsEnabled',
       'ownerNotificationsEnabled',
       'activeRole',
+      'appVersion',
+      'appBuildNumber',
+      'alertDiagnostics',
     ]) {
       expect(rules, contains("'$field'"), reason: '$field must be writable');
     }
@@ -171,6 +233,13 @@ void main() {
     // A signed-out device must be refused server side too: FCM token
     // rotation means its older tokens can still be in the list.
     expect(functions, contains('data.notificationsEnabled === false'));
+    expect(project, contains('scheduled_booking_request.wav in Resources'));
+    expect(appState, contains('_scheduledBookingRequestChannel'));
+    expect(appState, contains('scheduledBookingRequestChannelId'));
+    expect(functions, contains('"pritze_scheduled_booking_requests_v2"'));
+    expect(functions, contains('SCHEDULED_BOOKING_REQUEST_CHANNEL'));
+    expect(functions, contains('androidSound: SCHEDULED_BOOKING_REQUEST_SOUND'));
+    expect(functions, contains('apnsSound: "scheduled_booking_request.wav"'));
     expect(functions, contains('requireActiveOwnerSession: true'));
     expect(functions, contains('requiredActiveRolesByUser'));
     expect(functions, contains('customerPayableAmount: money('));
@@ -221,6 +290,128 @@ void main() {
     ).readAsStringSync();
     expect(recipientLogic, contains('after.customerUid'));
     expect(recipientLogic, contains('after.ownerUid'));
+
+    // The battery-optimisation list filters to "Not optimized" by default, so
+    // the app the owner is looking for is the one it hides. App info always
+    // shows it, and is where Battery > Unrestricted lives on Android 13+.
+    final manifestEarly = File(
+      'android/app/src/main/AndroidManifest.xml',
+    ).readAsStringSync();
+    final mainActivity = File(
+      'android/app/src/main/kotlin/com/example/nashik_salon_booking/'
+      'MainActivity.kt',
+    ).readAsStringSync();
+    expect(
+      mainActivity,
+      contains('startSettings(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)'),
+    );
+    expect(mainActivity, contains('"openNotificationSettings"'));
+    // The app-level permission can be granted while this one channel is off,
+    // which drops the alert silently; and "Restricted" background is a
+    // different switch from the battery-optimisation whitelist, so checking
+    // only the whitelist left the warning up after it had been fixed.
+    expect(mainActivity, contains('"isAlertChannelBlocked"'));
+    expect(mainActivity, contains('"isBackgroundRestricted"'));
+    // A data-only alert is withheld from an app Android has restricted, and
+    // that state is re-applied without the owner acting. A foreground service
+    // is the only thing that keeps the alert working with the app closed.
+    expect(mainActivity, contains('"startOwnerAlertService"'));
+    expect(mainActivity, contains('"stopOwnerAlertService"'));
+    final alertService = File(
+      'android/app/src/main/kotlin/com/example/nashik_salon_booking/'
+      'OwnerAlertService.kt',
+    ).readAsStringSync();
+    expect(alertService, contains('startForeground('));
+    expect(alertService, contains('START_STICKY'));
+    expect(alertService, contains('IMPORTANCE_LOW'));
+    // Tapping the permanent notification must bring back the running app.
+    // Without CLEAR_TOP it stacked a fresh MainActivity - a second Flutter
+    // engine starting from nothing - whenever a settings screen was on top.
+    expect(alertService, contains('Intent.FLAG_ACTIVITY_CLEAR_TOP'));
+    expect(alertService, contains('Intent.FLAG_ACTIVITY_SINGLE_TOP'));
+    // A refused sticky restart must stop the service, not crash the process
+    // that also hosts the FCM isolate.
+    expect(
+      RegExp(
+        r'try \{\s*startForeground\(.*?\} catch',
+        dotAll: true,
+      ).hasMatch(alertService),
+      isTrue,
+    );
+    // The profile listener must not register on every snapshot: registering
+    // writes that profile, so it re-triggered itself without end.
+    expect(
+      RegExp(
+        r'_ownerAccount = account;\s*//[^\n]*\n(\s*//[^\n]*\n)*\s*final token = '
+        r'_registeredMessagingToken;\s*if \(token == null \|\|\s*'
+        r'!isMessagingRegistrationCurrent\(',
+      ).hasMatch(appState),
+      isTrue,
+      reason: 'the owner profile listener must skip a current registration',
+    );
+    expect(appState, contains('deviceSignature == _reportedDeviceSignature'));
+    // The diagnostics-only write must not touch the account-wide stop.
+    final diagnosticsWrite = RegExp(
+      r'Future<void> _reportAlertDiagnostics\(.*?\n  \}\n',
+      dotAll: true,
+    ).firstMatch(appState)?.group(0);
+    expect(diagnosticsWrite, isNotNull);
+    expect(diagnosticsWrite, isNot(contains("'notificationsEnabled'")));
+    expect(manifestEarly, contains('FOREGROUND_SERVICE_SPECIAL_USE'));
+    expect(manifestEarly, contains('android:foregroundServiceType="specialUse"'));
+    expect(manifestEarly, contains('PROPERTY_SPECIAL_USE_FGS_SUBTYPE'));
+    expect(appState, contains('OwnerAlertDeviceSettings.startAlertService()'));
+    expect(appState, contains('OwnerAlertDeviceSettings.stopAlertService()'));
+    // The permanent notification exists only while the salon is actually open
+    // for instant bookings, the way a driver app ties it to being online.
+    expect(appState, contains('salonOpen: salon?.isOpen ?? false'));
+    expect(appState, contains('isInstantBookingEnabledForSalon(salon)'));
+    expect(appState, contains('_syncOwnerAlertService()'));
+    // The salon loads after the account, so the listener decision has to be
+    // revisited when it arrives or it is made once, wrongly, and never again.
+    // Matched on structure, not on indentation: the point is that the same
+    // handler that marks the list loaded also re-evaluates the alert
+    // listener, not where in the file it happens to sit.
+    expect(
+      RegExp(
+        r'_salonsLoaded = true;.*?_syncOwnerBookingAlarm\(\)',
+        dotAll: true,
+      ).firstMatch(appState)?.group(0),
+      isNotNull,
+      reason: 'the salon snapshot must re-sync the owner alert listener',
+    );
+    expect(appState, contains('shouldRunOwnerAlertService('));
+    expect(mainActivity, contains('IMPORTANCE_NONE'));
+    expect(mainActivity, contains('activity.isBackgroundRestricted'));
+    expect(
+      mainActivity,
+      contains('Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS'),
+    );
+    final readiness = File(
+      'lib/services/owner_alert_readiness.dart',
+    ).readAsStringSync();
+    expect(readiness, contains('backgroundRestricted'));
+    expect(readiness, contains('alertChannelBlocked'));
+    // The readiness check must ask about the channel the alert is posted on.
+    expect(
+      readiness,
+      contains("ownerBookingRequestChannelId = 'pritze_owner_booking_requests_v5'"),
+    );
+    expect(appState, contains('AndroidNotificationChannel(\n  ownerBookingRequestChannelId'));
+    expect(
+      mainActivity,
+      contains('Settings.ACTION_APP_NOTIFICATION_SETTINGS'),
+    );
+    final dashboard = File(
+      'lib/screens/salon/salon_dashboard_screen.dart',
+    ).readAsStringSync();
+    // Notifications are denied by default on Android 13+, so that blocker
+    // needs an action, not just a sentence.
+    expect(
+      dashboard,
+      contains('OwnerAlertBlocker.notificationsDisabled =>\n'
+          '        await OwnerAlertDeviceSettings.openNotificationSettings()'),
+    );
 
     final manifest = File(
       'android/app/src/main/AndroidManifest.xml',
@@ -292,4 +483,20 @@ void _expectValidWaveFile(File file) {
   expect(durationSeconds, greaterThanOrEqualTo(28));
   expect(durationSeconds, lessThan(30));
   expect(bytes.length, lessThan(6 * 1024 * 1024));
+}
+
+void _expectShortWaveFile(File file) {
+  final bytes = file.readAsBytesSync();
+  expect(bytes.length, greaterThan(44));
+  expect(ascii.decode(bytes.sublist(0, 4)), 'RIFF');
+  expect(ascii.decode(bytes.sublist(8, 12)), 'WAVE');
+  final header = ByteData.sublistView(Uint8List.fromList(bytes));
+  final channelCount = header.getUint16(22, Endian.little);
+  final sampleRate = header.getUint32(24, Endian.little);
+  final bitsPerSample = header.getUint16(34, Endian.little);
+  final durationSeconds =
+      (bytes.length - 44) / (sampleRate * channelCount * (bitsPerSample ~/ 8));
+  // One short tone. iOS refuses a notification sound of 30 seconds or more.
+  expect(durationSeconds, greaterThan(0.5));
+  expect(durationSeconds, lessThan(10));
 }

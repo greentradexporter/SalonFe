@@ -12,11 +12,13 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/app_models.dart';
 import '../models/service_catalog.dart';
 import '../services/firebase_bootstrap.dart';
+import '../services/owner_alert_readiness.dart';
 import '../services/owner_booking_alert_state.dart';
 import '../services/push_deregistration.dart';
 
@@ -27,18 +29,68 @@ const _dismissedNotificationsPreferencePrefix =
     'pritze.notifications.dismissed.';
 const _notificationsReadAtPreferencePrefix = 'pritze.notifications.readAt.';
 const _upiHandoffOpenedPreferencePrefix = 'pritze.upiHandoff.opened.';
-const _pushPermissionRequestedPreferenceKey =
-    'pritze.notifications.permissionRequested';
+// Stores the build the permission prompt was last shown for, so an update
+// re-asks. The old boolean key is deliberately left behind: its absence makes
+// the first launch after this change ask again, which is the point.
+const _pushPermissionRequestedBuildPreferenceKey =
+    'pritze.notifications.permissionRequestedBuild';
 const _ownerAlertSuppressionDuration = ownerBookingSuppressionDuration;
 const _backgroundBookingActionAuthTimeout = Duration(seconds: 4);
 const instantArrivalMinuteOptions = <int>[15, 20, 25];
 const instantBookingResponseTimeout = ownerBookingResponseTimeout;
-const scheduledBookingHorizonDays = 30;
+const scheduledBookingHorizonDays = 7;
 
 /// How far ahead the first bookable slot sits. A customer turned away by one
 /// salon is offered the next slot from here, so this is also the shortest
-/// notice a salon can be given.
-const scheduledBookingLeadTime = Duration(minutes: 30);
+/// notice a salon can be given. The result is then rounded up to the next
+/// half hour, so opening the app at 1:13 offers 2:30 rather than 2:13.
+const scheduledBookingLeadTime = Duration(hours: 1);
+
+/// Slots sit on the clock's half hours - 2:00, 2:30, 3:00 - whatever time the
+/// salon opens at.
+const slotIntervalMinutes = 30;
+
+/// A barber taken by a booking is unavailable for at least this long from the
+/// moment that booking starts, so the next offer for them is an hour later
+/// rather than immediately after a short service.
+const barberBookingCooldown = Duration(hours: 1);
+
+/// The next half hour at or after [value]; unchanged when already on one.
+@visibleForTesting
+DateTime roundUpToHalfHour(DateTime value) {
+  final floor = DateTime(value.year, value.month, value.day, value.hour);
+  for (final candidate in [
+    floor,
+    floor.add(const Duration(minutes: 30)),
+    floor.add(const Duration(hours: 1)),
+  ]) {
+    if (!candidate.isBefore(value)) return candidate;
+  }
+  return floor.add(const Duration(hours: 1));
+}
+
+/// The earliest start a customer may choose: an hour's notice, rounded up to
+/// the next half hour.
+@visibleForTesting
+DateTime earliestBookableStart(DateTime now) =>
+    roundUpToHalfHour(now.add(scheduledBookingLeadTime));
+
+/// When a barber taken by this booking becomes free again. Never mid-service:
+/// a long service runs past the cooldown and wins.
+@visibleForTesting
+DateTime barberBusyUntil(DateTime bookingStart, int durationMinutes) {
+  final serviceEnd = bookingStart.add(
+    Duration(minutes: durationMinutes > 0 ? durationMinutes : 30),
+  );
+  final cooldownEnd = bookingStart.add(barberBookingCooldown);
+  return serviceEnd.isAfter(cooldownEnd) ? serviceEnd : cooldownEnd;
+}
+
+/// The first half-hour slot at or after a salon's opening minute.
+@visibleForTesting
+int firstSlotMinuteOfDay(int openMinutes) =>
+    ((openMinutes + slotIntervalMinutes - 1) ~/ slotIntervalMinutes) *
+    slotIntervalMinutes;
 const customerCancellationReasons = <String>[
   'Plans changed',
   'Booked by mistake',
@@ -60,25 +112,43 @@ const _pushNotificationChannel = AndroidNotificationChannel(
 // sounds needs a new id. `_legacyOwnerBookingRequestChannelIds` keeps the
 // retired ones cancellable, and the server addresses each generation by its
 // own token field so a device never rings twice.
+//
+// Both booking channels are silent and only vibrate. Their sounds are played
+// natively (`OwnerAlertRinger` in the Android app) when the push arrives: a
+// channel's sound is the phone's to decide, and Xiaomi's MIUI/HyperOS ship it
+// switched off for every new app channel with no way for the app to turn it
+// on, so the alert was shown but never heard. A channel sound as well as the
+// native one would play the tone twice on every other phone.
 const _ownerBookingRequestChannel = AndroidNotificationChannel(
-  'pritze_owner_booking_requests_v4',
+  ownerBookingRequestChannelId,
   'Owner booking requests',
   description:
       'Continuous booking request alerts until accepted, rejected or timed out.',
   importance: Importance.max,
-  playSound: true,
+  playSound: false,
   enableVibration: true,
-  sound: RawResourceAndroidNotificationSound('owner_booking_request'),
-  // The alarm stream, so a salon phone left on silent still rings. The
-  // notification stream obeys the ringer switch, which made the alert
-  // inaudible on exactly the phones that sit face-down on a counter.
-  audioAttributesUsage: AudioAttributesUsage.alarm,
 );
+// A scheduled booking is not urgent the way an instant request is. Its own
+// tone lets the owner tell the two apart by ear, but it plays once, on the
+// notification stream: no insistent flag, no full-screen intent, no alarm.
+const _scheduledBookingRequestChannel = AndroidNotificationChannel(
+  scheduledBookingRequestChannelId,
+  'Scheduled booking requests',
+  description: 'A customer booked an appointment for later.',
+  importance: Importance.high,
+  playSound: false,
+  enableVibration: true,
+);
+const _legacyScheduledBookingRequestChannelId =
+    'pritze_scheduled_booking_requests_v1';
 const _ownerBookingAlarmNotificationId = 790001;
 const _ownerBookingAlarmNotificationTag = 'pritze_owner_booking_request';
 const _legacyOwnerBookingRequestChannelIds = <String>{
   'pritze_owner_booking_requests_v2',
   'pritze_owner_booking_requests_v3',
+  // Still the name the server gives a request. It was also the last channel
+  // that carried the sound itself.
+  'pritze_owner_booking_requests_v4',
 };
 const _ownerBookingAlarmInterval = Duration(seconds: 15);
 const _androidInsistentNotificationFlag = 4;
@@ -286,6 +356,11 @@ Future<void> _cancelOwnerBookingNotifications(
   FlutterLocalNotificationsPlugin notifications, {
   String? bookingId,
 }) async {
+  // First, so a failure below can never leave the phone ringing. Every way an
+  // alert ends in the app passes through here. A no-op in background isolates,
+  // where the native side stops the ring itself (the resolution push, the
+  // notification's Accept/Reject, or the deadline).
+  await OwnerAlertDeviceSettings.stopAlertRing(bookingId);
   if (bookingId != null) {
     await notifications.cancel(
       id: ownerBookingNotificationId(bookingId),
@@ -483,62 +558,78 @@ Future<bool> _showUnansweredOwnerBookingAlert({
   isStillPending: isStillPending,
   cancel: () =>
       _cancelOwnerBookingNotifications(notifications, bookingId: bookingId),
-  show: (remainingMillis) => notifications.show(
-    id: ownerBookingNotificationId(bookingId),
-    title: title,
-    body: body,
-    notificationDetails: NotificationDetails(
-      android: AndroidNotificationDetails(
-        _ownerBookingRequestChannel.id,
-        _ownerBookingRequestChannel.name,
-        channelDescription: _ownerBookingRequestChannel.description,
-        importance: Importance.max,
-        priority: Priority.max,
-        icon: '@mipmap/ic_launcher',
-        category: AndroidNotificationCategory.alarm,
-        ongoing: true,
-        autoCancel: false,
-        enableVibration: true,
-        visibility: NotificationVisibility.public,
-        // Without this the alert is only a heads-up banner, which a locked or
-        // pocketed phone never surfaces. A full-screen intent wakes the screen
-        // and shows the request the way an incoming call does. Android 14 and
-        // later ignore it unless the owner has granted the permission, which
-        // `ownerAlertReadiness` reports and `openFullScreenIntentSettings`
-        // sends them to.
-        fullScreenIntent: true,
-        tag: _ownerBookingTag(bookingId),
-        timeoutAfter: remainingMillis,
-        sound: const RawResourceAndroidNotificationSound(
-          'owner_booking_request',
-        ),
-        // Pre-Oreo devices take the audio stream from the notification
-        // rather than the channel.
-        audioAttributesUsage: AudioAttributesUsage.alarm,
-        additionalFlags: Int32List.fromList([
-          _androidInsistentNotificationFlag,
-        ]),
-        actions: _ownerInstantBookingNotificationActions,
-      ),
-      iOS: const DarwinNotificationDetails(
-        sound: 'owner_booking_request.wav',
-        categoryIdentifier: _ownerBookingRequestDarwinCategory,
-        // A normal alert. iOS cannot loop a notification sound, and no salon
-        // owner is on iOS yet, so the owner alert deliberately stays an
-        // ordinary notification here. Raising this to timeSensitive also
-        // needs the matching entitlement and App ID capability.
-        interruptionLevel: InterruptionLevel.active,
-      ),
-      macOS: const DarwinNotificationDetails(
-        sound: 'owner_booking_request.wav',
-        categoryIdentifier: _ownerBookingRequestDarwinCategory,
-      ),
+  show: (remainingMillis) async {
+    await _postOwnerBookingAlert(
+      notifications: notifications,
+      bookingId: bookingId,
+      remainingMillis: remainingMillis,
+      title: title,
+      body: body,
+      data: data,
+    );
+    // The channel is silent; the ring is native. From a background isolate
+    // this does nothing, because the push receiver has already started it.
+    await OwnerAlertDeviceSettings.ringAlert(bookingId, deadline);
+  },
+);
+
+Future<void> _postOwnerBookingAlert({
+  required FlutterLocalNotificationsPlugin notifications,
+  required String bookingId,
+  required int remainingMillis,
+  required String title,
+  required String body,
+  required Map<String, dynamic> data,
+}) => notifications.show(
+  id: ownerBookingNotificationId(bookingId),
+  title: title,
+  body: body,
+  notificationDetails: NotificationDetails(
+    android: AndroidNotificationDetails(
+      _ownerBookingRequestChannel.id,
+      _ownerBookingRequestChannel.name,
+      channelDescription: _ownerBookingRequestChannel.description,
+      importance: Importance.max,
+      priority: Priority.max,
+      icon: '@mipmap/ic_launcher',
+      category: AndroidNotificationCategory.alarm,
+      ongoing: true,
+      autoCancel: false,
+      enableVibration: true,
+      visibility: NotificationVisibility.public,
+      // Without this the alert is only a heads-up banner, which a locked or
+      // pocketed phone never surfaces. A full-screen intent wakes the screen
+      // and shows the request the way an incoming call does. Android 14 and
+      // later ignore it unless the owner has granted the permission, which
+      // `ownerAlertReadiness` reports and `openFullScreenIntentSettings`
+      // sends them to.
+      fullScreenIntent: true,
+      tag: _ownerBookingTag(bookingId),
+      timeoutAfter: remainingMillis,
+      // Silent here too, for pre-Oreo phones that read the sound from the
+      // notification. Insistent still repeats the vibration.
+      playSound: false,
+      additionalFlags: Int32List.fromList([_androidInsistentNotificationFlag]),
+      actions: _ownerInstantBookingNotificationActions,
     ),
-    payload: _notificationPayload({
-      ...data,
-      'channel': _ownerBookingRequestChannel.id,
-    }),
+    iOS: const DarwinNotificationDetails(
+      sound: 'owner_booking_request.wav',
+      categoryIdentifier: _ownerBookingRequestDarwinCategory,
+      // A normal alert. iOS cannot loop a notification sound, and no salon
+      // owner is on iOS yet, so the owner alert deliberately stays an
+      // ordinary notification here. Raising this to timeSensitive also
+      // needs the matching entitlement and App ID capability.
+      interruptionLevel: InterruptionLevel.active,
+    ),
+    macOS: const DarwinNotificationDetails(
+      sound: 'owner_booking_request.wav',
+      categoryIdentifier: _ownerBookingRequestDarwinCategory,
+    ),
   ),
+  payload: _notificationPayload({
+    ...data,
+    'channel': _ownerBookingRequestChannel.id,
+  }),
 );
 
 @pragma('vm:entry-point')
@@ -610,14 +701,76 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 bool shouldRequestPushPermission(
   AuthorizationStatus status, {
   required bool isAndroid,
-  required bool hasRequestedOnAndroid,
+  required bool hasRequestedForThisBuild,
 }) {
+  // Already granted: never interrupt someone whose notifications work.
+  if (status == AuthorizationStatus.authorized ||
+      status == AuthorizationStatus.provisional) {
+    return false;
+  }
   if (status == AuthorizationStatus.notDetermined) {
     return true;
   }
+  // Denied. Android 13 and later install with notifications denied, and the
+  // system shows its prompt only a couple of times before ignoring the
+  // request, so asking once ever meant an owner who dismissed it on an old
+  // build was never asked again. Ask once per build instead: every update is
+  // a fresh chance, and nobody who already allowed it is asked at all.
   return isAndroid &&
       status == AuthorizationStatus.denied &&
-      !hasRequestedOnAndroid;
+      !hasRequestedForThisBuild;
+}
+
+/// Whether the booking-request listener should be running.
+///
+/// Every input arrives asynchronously and at a different time, so this is
+/// re-evaluated whenever any of them changes. Getting that wrong is invisible:
+/// the listener simply never starts and the owner sees no notification.
+@visibleForTesting
+bool shouldRunOwnerAlertService({
+  required bool isOwner,
+  required bool hasOwnerAccount,
+  required bool salonLoaded,
+  required bool salonOpen,
+  required bool instantBookingsEnabled,
+}) =>
+    isOwner &&
+    hasOwnerAccount &&
+    salonLoaded &&
+    salonOpen &&
+    instantBookingsEnabled;
+
+/// Whether [profile] already routes notifications to [token] the way a
+/// registration would, so the registration write can be skipped.
+///
+/// The owner's profile listener asks for a registration when the profile
+/// changes, and a registration writes that profile with a fresh server
+/// timestamp, which is itself a change. Writing unconditionally fed the
+/// listener its own output: a read-and-write loop on the owner's profile for as
+/// long as they were signed in. The alert service keeps the process alive, so
+/// the loop ran all day - draining the battery until Android restricted the
+/// app, and keeping Firestore too busy to deliver the booking request itself.
+///
+/// Only routing fields are compared. `lastFcmToken`, the build and the
+/// diagnostics describe whichever phone wrote last, so comparing them would
+/// make two phones on one account overwrite each other in turn.
+@visibleForTesting
+bool isMessagingRegistrationCurrent(
+  Map<String, dynamic> profile, {
+  required String token,
+  required bool isOwnerSession,
+}) {
+  bool listed(String field) {
+    final tokens = profile[field];
+    return tokens is List && tokens.contains(token);
+  }
+
+  return listed('fcmTokens') &&
+      listed('ownerAlertV4Tokens') == isOwnerSession &&
+      !listed('ownerAlertV3Tokens') &&
+      profile['notificationsEnabled'] == true &&
+      profile['ownerNotificationsEnabled'] == isOwnerSession &&
+      (!isOwnerSession || profile['activeRole'] == UserRole.owner.name);
 }
 
 @visibleForTesting
@@ -891,6 +1044,23 @@ class AppState extends ChangeNotifier {
   /// look identical and acting on the wrong one strands the owner on the
   /// registration screen.
   bool get salonsLoaded => true;
+
+  /// Whether the salon list failed to arrive, or took so long that waiting
+  /// any longer is indistinguishable from hanging. A Firestore listener only
+  /// reports terminal errors; a connection that never establishes produces
+  /// neither a snapshot nor an error, so without this the owner sits on a
+  /// spinner until they kill the app.
+  bool get salonsLoadFailed => false;
+
+  /// Re-attaches the salon listener after [salonsLoadFailed].
+  void retrySalonsLoad() {}
+
+  /// Whether a direct lookup of the signed-in owner's own salon has finished.
+  /// The dashboard only needs to know about one salon, so it decides from
+  /// this rather than waiting for the whole list: a one-shot read either
+  /// answers, falls back to cache or fails, while a listener is under no
+  /// obligation to ever deliver a first snapshot.
+  bool get ownerSalonResolved => true;
 
   List<String> _normalizedDiscountServiceIds(Iterable<String> serviceIds) {
     final ids =
@@ -2308,6 +2478,7 @@ class AppState extends ChangeNotifier {
     final durationMinutes = service.durationMinutes > 0
         ? service.durationMinutes
         : 30;
+    final earliest = earliestBookableStart(now);
     final slots = <TimeSlot>[];
 
     for (
@@ -2317,9 +2488,11 @@ class AppState extends ChangeNotifier {
     ) {
       final day = DateTime(now.year, now.month, now.day + dayOffset);
       for (
-        var minuteOfDay = openMinutes;
+        // Start on the first half hour at or after opening, so a salon that
+        // opens at 9:15 still offers 9:30, 10:00, 10:30 rather than 9:15.
+        var minuteOfDay = firstSlotMinuteOfDay(openMinutes);
         minuteOfDay + durationMinutes <= closeMinutes;
-        minuteOfDay += 30
+        minuteOfDay += slotIntervalMinutes
       ) {
         final start = DateTime(
           day.year,
@@ -2328,7 +2501,7 @@ class AppState extends ChangeNotifier {
           minuteOfDay ~/ 60,
           minuteOfDay % 60,
         );
-        if (start.isBefore(now.add(scheduledBookingLeadTime))) {
+        if (start.isBefore(earliest)) {
           continue;
         }
         for (final barber in eligibleBarbers) {
@@ -2384,9 +2557,9 @@ class AppState extends ChangeNotifier {
       for (var dayOffset = 0; dayOffset < 4; dayOffset++) {
         final day = DateTime(now.year, now.month, now.day + dayOffset);
         for (
-          var minuteOfDay = openMinutes;
+          var minuteOfDay = firstSlotMinuteOfDay(openMinutes);
           minuteOfDay + shortestDuration <= closeMinutes;
-          minuteOfDay += 30
+          minuteOfDay += slotIntervalMinutes
         ) {
           final start = DateTime(
             day.year,
@@ -2395,7 +2568,7 @@ class AppState extends ChangeNotifier {
             minuteOfDay ~/ 60,
             minuteOfDay % 60,
           );
-          if (start.isBefore(now.add(scheduledBookingLeadTime))) {
+          if (start.isBefore(earliestBookableStart(now))) {
             continue;
           }
           if (_isBarberFree(barber.id, start, shortestDuration)) {
@@ -4355,10 +4528,8 @@ class AppState extends ChangeNotifier {
           booking.status == BookingStatus.rejected) {
         return false;
       }
-      final bookingEnd = booking.start.add(
-        Duration(minutes: booking.durationMinutes),
-      );
-      return booking.start.isBefore(candidateEnd) && start.isBefore(bookingEnd);
+      final busyUntil = barberBusyUntil(booking.start, booking.durationMinutes);
+      return booking.start.isBefore(candidateEnd) && start.isBefore(busyUntil);
     });
   }
 
@@ -4643,6 +4814,8 @@ class FirebaseAppState extends AppState with WidgetsBindingObserver {
   String? _pendingGoogleCustomerUid;
   bool _suppressTokenRegistration = false;
   String? _registeredMessagingToken;
+  String? _reportedDeviceSignature;
+  bool? _ownerAlertServiceRunning;
   Timer? _messagingTokenRetryTimer;
   int _messagingTokenRetryAttempt = 0;
   Timer? _ownerBookingAlarmTimer;
@@ -4684,9 +4857,113 @@ class FirebaseAppState extends AppState with WidgetsBindingObserver {
   }
 
   bool _salonsLoaded = false;
+  bool _salonsLoadFailed = false;
+  StreamSubscription<Object?>? _salonsSubscription;
+  Timer? _salonsWatchdog;
+  Timer? _salonsRetryTimer;
+  int _salonsRetryAttempt = 0;
+
+  /// How long the first snapshot may take before the owner is offered a retry
+  /// instead of an endless spinner. Only an owner with no saved copy of their
+  /// salon waits on this at all (a first sign-in on the phone); a cold start
+  /// on a low-end phone can need most of it, so 12 seconds was too tight.
+  static const _salonsFirstSnapshotTimeout = Duration(seconds: 20);
+
+  static const _ownerSalonCopyPrefix = 'pritze.ownerSalonCopy.';
+
+  /// The copy last written, so an unchanged salon is not written again.
+  String? _ownerSalonCopyWritten;
+
+  /// Puts the owner's salon back from the app's own copy, so the dashboard
+  /// opens without waiting for Firestore.
+  ///
+  /// The dashboard cannot show anything until it has the owner's salon, and
+  /// it used to get it only from Firestore: the whole-collection listener or
+  /// a direct read. Whenever Firestore was slow to answer at startup - a
+  /// phone still uploading writes an old build saved, the empty cache after
+  /// the one-time clear, a slow first connection - the owner got "Could not
+  /// load your salon" and a Retry button, again and again. This copy is the
+  /// app's, written each time the salon loads, so a returning owner never
+  /// waits on Firestore to open the dashboard. Live data replaces it as soon
+  /// as it arrives.
+  Future<void> _restoreOwnerSalonCopy(String uid) async {
+    try {
+      final preferences = await SharedPreferences.getInstance();
+      final raw = preferences.getString('$_ownerSalonCopyPrefix$uid');
+      if (raw == null) return;
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map) return;
+      final salon = ownerSalonFromCopy(Map<String, dynamic>.from(decoded));
+      // Only ever this owner's own salon, and never over live data.
+      if (salon == null ||
+          salon.id != ownerSalonId ||
+          getSalon(salon.id) != null) {
+        return;
+      }
+      _salons.add(salon);
+      _ownerProfileCompleted = true;
+      _ownerSalonCopyWritten = raw;
+      notifyListeners();
+    } catch (_) {
+      // No usable copy: the dashboard waits for Firestore, as it always did.
+    }
+  }
+
+  /// Never throws: it runs at the start of [_syncOwnerBookingAlarm], and a
+  /// salon that cannot be encoded (a NaN rating, say) must not stop the
+  /// booking alarm and the alert service that follow it.
+  void _saveOwnerSalonCopy() {
+    final account = _ownerAccount;
+    final salon = ownerSalonOrNull;
+    if (_activeRole != UserRole.owner || account == null || salon == null) {
+      return;
+    }
+    final String raw;
+    try {
+      raw = jsonEncode(ownerSalonCopyData(salon));
+    } catch (_) {
+      return;
+    }
+    if (raw == _ownerSalonCopyWritten) return;
+    _ownerSalonCopyWritten = raw;
+    unawaited(
+      SharedPreferences.getInstance()
+          .then(
+            (preferences) => preferences.setString(
+              '$_ownerSalonCopyPrefix${account.id}',
+              raw,
+            ),
+          )
+          .catchError((Object _) => false),
+    );
+  }
+
+  void _forgetOwnerSalonCopy(String uid) {
+    _ownerSalonCopyWritten = null;
+    unawaited(
+      SharedPreferences.getInstance()
+          .then(
+            (preferences) => preferences.remove('$_ownerSalonCopyPrefix$uid'),
+          )
+          .catchError((Object _) => false),
+    );
+  }
 
   @override
   bool get salonsLoaded => _salonsLoaded;
+
+  @override
+  bool get salonsLoadFailed => _salonsLoadFailed && !_salonsLoaded;
+
+  bool _ownerSalonResolved = false;
+
+  @override
+  bool get ownerSalonResolved => _ownerSalonResolved;
+
+  /// Long enough for a cold Indian mobile connection on a low-end phone,
+  /// short enough that the owner is not left guessing. Past this the cache
+  /// answers instead.
+  static const _ownerSalonFetchTimeout = Duration(seconds: 15);
 
   @override
   bool get usesFirebase => true;
@@ -5323,13 +5600,21 @@ class FirebaseAppState extends AppState with WidgetsBindingObserver {
   @override
   bool isBookingStatusUpdatePending(String bookingId) =>
       _bookingStatusRequests.contains(bookingId) ||
-      _optimisticBookingUpdates[bookingId]?.hasExpired(DateTime.now()) ==
-          false;
+      _optimisticBookingUpdates[bookingId]?.hasExpired(DateTime.now()) == false;
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state != AppLifecycleState.resumed) {
       return;
+    }
+    // Coming back to the foreground is the moment the connection is most
+    // likely to be healthy again, so retry a load that has failed rather than
+    // waiting out the backoff. Only a failed one: restarting a load that is
+    // merely still running throws away what it has received, and a resume
+    // happens after every permission prompt or settings visit - on a slow
+    // first load it could keep the salon from ever arriving.
+    if (_salonsLoadFailed && !_salonsLoaded) {
+      _listenToSalons();
     }
     final uid = auth.currentUser?.uid;
     if (uid == null) {
@@ -5339,6 +5624,11 @@ class FirebaseAppState extends AppState with WidgetsBindingObserver {
     unawaited(_saveMessagingToken(uid));
     if (_activeRole == UserRole.owner) {
       unawaited(_retryPendingOwnerBookingActions());
+      // Android 12 and later refuse to start a foreground service from the
+      // background, so resuming is the reliable moment to make sure it is
+      // running after the system has reclaimed it.
+      _ownerAlertServiceRunning = null;
+      _syncOwnerAlertService();
     }
   }
 
@@ -5368,6 +5658,11 @@ class FirebaseAppState extends AppState with WidgetsBindingObserver {
             ? UserRole.customer
             : _activeRole!;
         _activateRole(localRole, _accountFromFirebaseUser(user, const {}));
+        if (localRole == UserRole.owner) {
+          // Before the restore screen lifts, so the dashboard's first frame
+          // already has the salon instead of waiting on Firestore for it.
+          await _restoreOwnerSalonCopy(user.uid);
+        }
       } else {
         // Existing installs have an unscoped legacy role. Do not guess from
         // it: wait for this user's authoritative profile once, otherwise an
@@ -5452,12 +5747,16 @@ class FirebaseAppState extends AppState with WidgetsBindingObserver {
   Future<void> signOutActiveUser() async {
     _accountRestoreGeneration += 1;
     _suppressTokenRegistration = true;
+    // Signing out always takes the listener down; whether it comes back is
+    // decided by `_syncOwnerAlertService` from the salon's open state.
+    _setOwnerAlertServiceRunning(false);
     _pendingCustomerRegistrationPhone = null;
     _pendingCustomerRegistrationUid = null;
     _pendingGoogleCustomerAccount = null;
     _pendingGoogleCustomerUid = null;
     _stopOwnerBookingAlarm();
     final uid = auth.currentUser?.uid;
+    if (uid != null) _forgetOwnerSalonCopy(uid);
     final tokenCleanup = uid == null ? null : _removeMessagingToken(uid);
 
     // Clear the visible session and its uid-scoped role before any network
@@ -5507,6 +5806,8 @@ class FirebaseAppState extends AppState with WidgetsBindingObserver {
     _ownerBookingDecisionRetryTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     _messagingTokenRetryTimer?.cancel();
+    _salonsWatchdog?.cancel();
+    _salonsRetryTimer?.cancel();
     for (final subscription in _subscriptions) {
       unawaited(subscription.cancel());
     }
@@ -6574,8 +6875,9 @@ class FirebaseAppState extends AppState with WidgetsBindingObserver {
           (status == BookingStatus.confirmed ||
               status == BookingStatus.rejected);
       _bookingStatusRequests.add(bookingId);
-      _optimisticBookingUpdates[bookingId] =
-          OptimisticBooking(optimisticBooking);
+      _optimisticBookingUpdates[bookingId] = OptimisticBooking(
+        optimisticBooking,
+      );
       _bookings[index] = optimisticBooking;
       if (suppressOwnerAlert) {
         _suppressOwnerBookingAlertLocally(bookingId);
@@ -7633,33 +7935,183 @@ class FirebaseAppState extends AppState with WidgetsBindingObserver {
     });
   }
 
-  void _connectFirestore() {
-    _subscriptions.add(
-      firestore.collection('salons').snapshots().listen(
-        (snapshot) {
-          // Parse before clearing, and keep one bad document from taking the
-          // rest with it. This list reads the whole collection, so a single
-          // malformed salon used to empty it for everyone — and an owner with
-          // no salon in the list is sent to the registration screen, which
-          // replaces the dashboard and cannot be dismissed.
-          final parsed = parseDocuments(
-            snapshot.docs,
-            _salonFromFirestore,
-            onSkipped: _setSyncError,
-          );
-          _salons
-            ..clear()
-            ..addAll(parsed);
-          _ownerProfileCompleted = ownerSalonOrNull != null;
-          _salonsLoaded = true;
-          notifyListeners();
-        },
-        onError: (Object error) {
-          // Leave the last good list in place rather than stranding the owner.
-          _setSyncError(error);
-        },
-      ),
+  /// Attaches the salon listener, and makes sure it either produces a list or
+  /// says it could not. A Firestore listener reports terminal errors through
+  /// `onError`, but a connection that never establishes — App Check refusing
+  /// a token, or a network the device thinks is up — is retried silently
+  /// forever and delivers nothing at all. Both look the same from the
+  /// dashboard: a spinner the owner can only escape by killing the app.
+  void _listenToSalons() {
+    _salonsRetryTimer?.cancel();
+    _salonsRetryTimer = null;
+    _salonsWatchdog?.cancel();
+    unawaited(_salonsSubscription?.cancel());
+    if (_disposed) return;
+
+    if (!_salonsLoaded) {
+      _salonsWatchdog = Timer(_salonsFirstSnapshotTimeout, () {
+        if (_disposed || _salonsLoaded) return;
+        _salonsLoadFailed = true;
+        notifyListeners();
+      });
+    }
+
+    _salonsSubscription = firestore
+        .collection('salons')
+        .snapshots()
+        .listen(
+          (snapshot) {
+            // Parse before clearing, and keep one bad document from taking the
+            // rest with it. This list reads the whole collection, so a single
+            // malformed salon used to empty it for everyone — and an owner with
+            // no salon in the list is sent to the registration screen, which
+            // replaces the dashboard and cannot be dismissed.
+            final parsed = parseDocuments(
+              snapshot.docs,
+              _salonFromFirestore,
+              onSkipped: _setSyncError,
+            );
+            final fromServer = !snapshot.metadata.isFromCache;
+            // Only the server can say the owner's salon is gone. A cached list
+            // without it - an empty cache, or one saved before the salon existed -
+            // must not drop the salon the dashboard opened from.
+            final keptOwnerSalon = fromServer ? null : ownerSalonOrNull;
+            _salons
+              ..clear()
+              ..addAll(parsed);
+            if (keptOwnerSalon != null && getSalon(keptOwnerSalon.id) == null) {
+              _salons.add(keptOwnerSalon);
+            }
+            _ownerProfileCompleted = ownerSalonOrNull != null;
+            // An empty list from the cache is what an empty cache says while
+            // offline, not "there are no salons". Counting it as an answer sent
+            // owners whose salon had not arrived yet to the registration screen.
+            if (fromServer || parsed.isNotEmpty) {
+              _salonsLoaded = true;
+              _salonsLoadFailed = false;
+              _salonsRetryAttempt = 0;
+              _salonsWatchdog?.cancel();
+              _salonsWatchdog = null;
+            }
+            final ownerUid = _ownerAccount?.id;
+            if (fromServer &&
+                _activeRole == UserRole.owner &&
+                ownerUid != null &&
+                ownerSalonOrNull == null) {
+              // The server says this owner has no salon: do not reopen a stale one.
+              _forgetOwnerSalonCopy(ownerUid);
+            }
+            // The salon arrives after the account does, and the alert listener
+            // is gated on the salon being open for instant bookings. Without
+            // re-evaluating here, a fresh launch decided "no salon, so no
+            // listener" and never revisited it: the service only ever started
+            // if a booking changed or the app was resumed.
+            _syncOwnerBookingAlarm();
+            notifyListeners();
+          },
+          onError: (Object error) {
+            // A terminal error closes the stream for good, so nothing reconnects
+            // on its own. Leave the last good list in place rather than stranding
+            // the owner, and come back for another try.
+            _setSyncError(error);
+            if (!_salonsLoaded) {
+              _salonsLoadFailed = true;
+              notifyListeners();
+            }
+            _scheduleSalonsRetry();
+          },
+        );
+    _subscriptions.add(_salonsSubscription!);
+  }
+
+  /// Adds or replaces salons in the local list without disturbing the rest.
+  /// Used for documents that arrive outside the collection listener.
+  void _mergeSalonDocuments(
+    Iterable<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+  ) {
+    final parsed = parseDocuments(
+      docs.toList(growable: false),
+      _salonFromFirestore,
+      onSkipped: _setSyncError,
     );
+    if (parsed.isEmpty) return;
+    for (final salon in parsed) {
+      final index = _salons.indexWhere((existing) => existing.id == salon.id);
+      if (index == -1) {
+        _salons.add(salon);
+      } else {
+        _salons[index] = salon;
+      }
+    }
+    // Only ever promote here. The account may not be active yet, so a null
+    // owner salon at this point means "not known", not "none".
+    if (ownerSalonOrNull != null) {
+      _ownerProfileCompleted = true;
+    }
+    _saveOwnerSalonCopy();
+    notifyListeners();
+  }
+
+  /// Reads the signed-in owner's own salon with a request that must resolve.
+  ///
+  /// Logging in used to leave the dashboard waiting on the whole-collection
+  /// listener, which is attached once at launch and may never deliver a first
+  /// snapshot on a slow connection. Restarting the app appeared to fix it
+  /// only because the session-restore path already did this read — so the
+  /// owner force-quit, came back, and the salon was there. This closes that
+  /// gap: login now reads the salon the same way.
+  Future<void> _loadOwnerSalonDirect(String uid) async {
+    final query = firestore
+        .collection('salons')
+        .where('ownerUid', isEqualTo: uid)
+        .limit(1);
+    try {
+      final snapshot = await query.get().timeout(_ownerSalonFetchTimeout);
+      _mergeSalonDocuments(snapshot.docs);
+      // An empty result from the server is an answer too: this owner has no
+      // salon and belongs on the registration screen.
+      _ownerSalonResolved = true;
+      notifyListeners();
+    } catch (error) {
+      // The cache answers immediately or not at all, so it cannot hang in
+      // turn. It can only add a salon, never rule one out, so a cache hit
+      // does not count as resolving the question.
+      try {
+        final cached = await query.get(const GetOptions(source: Source.cache));
+        _mergeSalonDocuments(cached.docs);
+      } catch (_) {
+        // No cached copy either; fall through to the error below.
+      }
+      if (ownerSalonOrNull == null) {
+        _setSyncError(error);
+        _salonsLoadFailed = true;
+        notifyListeners();
+      }
+    }
+  }
+
+  void _scheduleSalonsRetry() {
+    if (_disposed || _salonsRetryTimer != null) return;
+    _salonsRetryAttempt = _salonsRetryAttempt < 5 ? _salonsRetryAttempt + 1 : 5;
+    _salonsRetryTimer = Timer(
+      Duration(seconds: 2 << (_salonsRetryAttempt - 1)),
+      () {
+        _salonsRetryTimer = null;
+        _listenToSalons();
+      },
+    );
+  }
+
+  @override
+  void retrySalonsLoad() {
+    _salonsLoadFailed = false;
+    _salonsRetryAttempt = 0;
+    notifyListeners();
+    _listenToSalons();
+  }
+
+  void _connectFirestore() {
+    _listenToSalons();
     _subscriptions.add(
       firestore.collection('appConfig').doc('public').snapshots().listen((
         snapshot,
@@ -7672,22 +8124,25 @@ class FirebaseAppState extends AppState with WidgetsBindingObserver {
       }),
     );
     _subscriptions.add(
-      firestore.collection('barbers').snapshots().listen(
-        (snapshot) {
-          final parsed = parseDocuments(
-            snapshot.docs,
-            _barberFromFirestore,
-            onSkipped: _setSyncError,
-          );
-          _barbers
-            ..clear()
-            ..addAll(parsed);
-          notifyListeners();
-        },
-        onError: (Object error) {
-          _setSyncError(error);
-        },
-      ),
+      firestore
+          .collection('barbers')
+          .snapshots()
+          .listen(
+            (snapshot) {
+              final parsed = parseDocuments(
+                snapshot.docs,
+                _barberFromFirestore,
+                onSkipped: _setSyncError,
+              );
+              _barbers
+                ..clear()
+                ..addAll(parsed);
+              notifyListeners();
+            },
+            onError: (Object error) {
+              _setSyncError(error);
+            },
+          ),
     );
     _subscriptions.add(
       firestore
@@ -7739,6 +8194,19 @@ class FirebaseAppState extends AppState with WidgetsBindingObserver {
     });
   }
 
+  Future<PackageInfo?> _packageInfoOrNull() async {
+    try {
+      return await PackageInfo.fromPlatform();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Empty when the platform cannot answer, which makes the caller fall back
+  /// to asking rather than silently staying quiet.
+  Future<String> _currentAppBuild() async =>
+      (await _packageInfoOrNull())?.buildNumber.trim() ?? '';
+
   Future<void> _requestPushPermissionAndRegister() async {
     if (_pushPermissionSetupStarted) {
       return;
@@ -7748,24 +8216,27 @@ class FirebaseAppState extends AppState with WidgetsBindingObserver {
       await _initializeLocalNotifications();
       var settings = await messaging.getNotificationSettings();
       final preferences = await SharedPreferences.getInstance();
-      final hasRequestedOnAndroid =
-          preferences.getBool(_pushPermissionRequestedPreferenceKey) ?? false;
+      final currentBuild = await _currentAppBuild();
+      final hasRequestedForThisBuild =
+          currentBuild.isNotEmpty &&
+          preferences.getString(_pushPermissionRequestedBuildPreferenceKey) ==
+              currentBuild;
       final isAndroid =
           !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
       if (shouldRequestPushPermission(
         settings.authorizationStatus,
         isAndroid: isAndroid,
-        hasRequestedOnAndroid: hasRequestedOnAndroid,
+        hasRequestedForThisBuild: hasRequestedForThisBuild,
       )) {
         settings = await messaging.requestPermission(
           alert: true,
           badge: true,
           sound: true,
         );
-        if (isAndroid) {
-          await preferences.setBool(
-            _pushPermissionRequestedPreferenceKey,
-            true,
+        if (isAndroid && currentBuild.isNotEmpty) {
+          await preferences.setString(
+            _pushPermissionRequestedBuildPreferenceKey,
+            currentBuild,
           );
         }
       }
@@ -7823,6 +8294,11 @@ class FirebaseAppState extends AppState with WidgetsBindingObserver {
             AndroidFlutterLocalNotificationsPlugin
           >()
           ?.createNotificationChannel(_pushNotificationChannel);
+      await _localNotifications
+          .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin
+          >()
+          ?.createNotificationChannel(_scheduledBookingRequestChannel);
       await _localNotifications
           .resolvePlatformSpecificImplementation<
             AndroidFlutterLocalNotificationsPlugin
@@ -8051,18 +8527,29 @@ class FirebaseAppState extends AppState with WidgetsBindingObserver {
       );
       return;
     }
+    // A scheduled booking carries its own tone, so the owner can tell it from
+    // an ordinary update without looking. The native push receiver plays it;
+    // the notification itself is silent so it is not heard twice.
+    final isScheduledBookingRequest = <String>{
+      _scheduledBookingRequestChannel.id,
+      _legacyScheduledBookingRequestChannelId,
+    }.contains(message.data['channel']);
+    final channel = isScheduledBookingRequest
+        ? _scheduledBookingRequestChannel
+        : _pushNotificationChannel;
     await _localNotifications.show(
       id: DateTime.now().millisecondsSinceEpoch.remainder(1000000),
       title: title ?? 'Pritze',
       body: body ?? '',
       notificationDetails: NotificationDetails(
         android: AndroidNotificationDetails(
-          _pushNotificationChannel.id,
-          _pushNotificationChannel.name,
-          channelDescription: _pushNotificationChannel.description,
+          channel.id,
+          channel.name,
+          channelDescription: channel.description,
           importance: Importance.high,
           priority: Priority.high,
           icon: '@mipmap/ic_launcher',
+          playSound: !isScheduledBookingRequest,
         ),
         iOS: const DarwinNotificationDetails(),
         macOS: const DarwinNotificationDetails(),
@@ -8188,7 +8675,42 @@ class FirebaseAppState extends AppState with WidgetsBindingObserver {
       ) &&
       !_isOwnerBookingAlertSuppressedLocally(booking.id);
 
+  /// The listener only runs while this salon is open and taking instant
+  /// bookings, so the permanent notification is present exactly when the owner
+  /// is expecting work - the same thing a driver app does with "online". Close
+  /// the salon or turn instant bookings off and it disappears.
+  void _syncOwnerAlertService() {
+    final salon = ownerSalonOrNull;
+    _setOwnerAlertServiceRunning(
+      shouldRunOwnerAlertService(
+        isOwner: _activeRole == UserRole.owner,
+        hasOwnerAccount: _ownerAccount != null,
+        salonLoaded: salon != null,
+        salonOpen: salon?.isOpen ?? false,
+        instantBookingsEnabled:
+            salon != null && isInstantBookingEnabledForSalon(salon),
+      ),
+    );
+  }
+
+  void _setOwnerAlertServiceRunning(bool running) {
+    if (_ownerAlertServiceRunning == running) return;
+    _ownerAlertServiceRunning = running;
+    // Never awaited: sign-out calls into this, and leaving an account must not
+    // wait on a platform channel.
+    unawaited(
+      (running
+              ? OwnerAlertDeviceSettings.startAlertService()
+              : OwnerAlertDeviceSettings.stopAlertService())
+          .catchError((Object _) => false),
+    );
+  }
+
   void _syncOwnerBookingAlarm() {
+    // Runs whenever the salon, the account or the bookings change, so the
+    // saved copy follows the live salon. A no-op when nothing changed.
+    _saveOwnerSalonCopy();
+    _syncOwnerAlertService();
     if (_activeRole != UserRole.owner || _ownerAccount == null) {
       _stopOwnerBookingAlarm(cancelNotifications: !isRestoringSession);
       return;
@@ -8315,6 +8837,54 @@ class FirebaseAppState extends AppState with WidgetsBindingObserver {
     }
   }
 
+  /// What this phone last wrote about itself to the profile: build and alert
+  /// diagnostics. Kept so an unchanged report is not written again, because
+  /// every write to the profile wakes the owner's profile listener.
+  String _deviceReportSignature(
+    String uid, {
+    required String appVersion,
+    required int appBuildNumber,
+    required Map<String, Object?> diagnostics,
+  }) => jsonEncode({
+    'uid': uid,
+    'appVersion': appVersion,
+    'appBuildNumber': appBuildNumber,
+    'alertDiagnostics': diagnostics,
+  });
+
+  /// Records what this phone is doing with alerts even when it cannot be
+  /// registered for them. Writes only the diagnostic fields, so it can never
+  /// add or remove a token by accident. `notificationsEnabled` is left alone:
+  /// the server reads it as an account-wide stop, so one phone with
+  /// notifications off would silence every other phone on the account.
+  /// `alertDiagnostics.notificationsAllowed` already says it for this phone.
+  Future<void> _reportAlertDiagnostics(String uid) async {
+    try {
+      if (auth.currentUser?.uid != uid) return;
+      final packageInfo = await _packageInfoOrNull();
+      final appVersion = packageInfo?.version ?? '';
+      final appBuildNumber =
+          int.tryParse(packageInfo?.buildNumber.trim() ?? '') ?? 0;
+      final diagnostics = await OwnerAlertDeviceSettings.diagnostics();
+      final signature = _deviceReportSignature(
+        uid,
+        appVersion: appVersion,
+        appBuildNumber: appBuildNumber,
+        diagnostics: diagnostics,
+      );
+      if (signature == _reportedDeviceSignature) return;
+      await firestore.collection('users').doc(uid).set({
+        'appVersion': appVersion,
+        'appBuildNumber': appBuildNumber,
+        'alertDiagnostics': diagnostics,
+        'fcmUpdatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+      _reportedDeviceSignature = signature;
+    } catch (_) {
+      // Diagnostics are never worth failing a sign-in or a resume over.
+    }
+  }
+
   Future<void> _saveMessagingToken(String uid, {String? token}) async {
     try {
       if (_suppressTokenRegistration || auth.currentUser?.uid != uid) {
@@ -8322,10 +8892,15 @@ class FirebaseAppState extends AppState with WidgetsBindingObserver {
       }
       final settings = await messaging.getNotificationSettings();
       if (!canRegisterForPushNotifications(settings.authorizationStatus)) {
+        // Still say what this phone looks like. A device that cannot register
+        // is exactly the one worth seeing, and returning here meant the only
+        // phones that ever reported were the healthy ones.
+        unawaited(_reportAlertDiagnostics(uid));
         return;
       }
       final messagingToken = token ?? await _getMessagingTokenWhenReady();
       if (messagingToken == null || messagingToken.isEmpty) {
+        unawaited(_reportAlertDiagnostics(uid));
         _scheduleMessagingTokenRetry(uid);
         return;
       }
@@ -8340,6 +8915,10 @@ class FirebaseAppState extends AppState with WidgetsBindingObserver {
           .doc(uid)
           .get();
       final accountData = accountSnapshot.data() ?? const <String, dynamic>{};
+      final packageInfo = await _packageInfoOrNull();
+      final appVersion = packageInfo?.version ?? '';
+      final appBuildNumber =
+          int.tryParse(packageInfo?.buildNumber.trim() ?? '') ?? 0;
       final authoritativeRole =
           _roleFromName(accountData['role'] as String?) ??
           _roleFromName(accountData['activeRole'] as String?) ??
@@ -8355,6 +8934,27 @@ class FirebaseAppState extends AppState with WidgetsBindingObserver {
       if (_suppressTokenRegistration || auth.currentUser?.uid != uid) {
         return;
       }
+      final diagnostics = await OwnerAlertDeviceSettings.diagnostics();
+      final deviceSignature = _deviceReportSignature(
+        uid,
+        appVersion: appVersion,
+        appBuildNumber: appBuildNumber,
+        diagnostics: diagnostics,
+      );
+      if (deviceSignature == _reportedDeviceSignature &&
+          isMessagingRegistrationCurrent(
+            accountData,
+            token: messagingToken,
+            isOwnerSession: isOwnerSession,
+          )) {
+        // Nothing to say. This runs on every resume and every profile change,
+        // and the write below is itself a profile change.
+        _registeredMessagingToken = messagingToken;
+        _messagingTokenRetryTimer?.cancel();
+        _messagingTokenRetryTimer = null;
+        _messagingTokenRetryAttempt = 0;
+        return;
+      }
       await firestore.collection('users').doc(uid).set({
         'fcmTokens': FieldValue.arrayUnion([messagingToken]),
         'ownerAlertV4Tokens': isOwnerSession
@@ -8365,6 +8965,16 @@ class FirebaseAppState extends AppState with WidgetsBindingObserver {
         // same request.
         'ownerAlertV3Tokens': FieldValue.arrayRemove([messagingToken]),
         'lastFcmToken': messagingToken,
+        // Which build this device is actually running. Without it the only
+        // clue was which token list a device landed in, which is a side
+        // effect rather than an answer: it cannot tell 45 from 38, and it
+        // cannot distinguish "old build" from "new build whose write failed".
+        'appVersion': appVersion,
+        'appBuildNumber': appBuildNumber,
+        // What the alert is actually doing on this phone. Written here because
+        // an owner's device cannot be inspected directly, and the failures are
+        // all silent ones.
+        'alertDiagnostics': diagnostics,
         'notificationsEnabled': true,
         'ownerNotificationsEnabled': isOwnerSession,
         // The server routes owner alerts on this field and only claimLoginRole
@@ -8373,6 +8983,7 @@ class FirebaseAppState extends AppState with WidgetsBindingObserver {
         if (isOwnerSession) 'activeRole': UserRole.owner.name,
         'fcmUpdatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
+      _reportedDeviceSignature = deviceSignature;
       _registeredMessagingToken = messagingToken;
       _messagingTokenRetryTimer?.cancel();
       _messagingTokenRetryTimer = null;
@@ -8507,15 +9118,18 @@ class FirebaseAppState extends AppState with WidgetsBindingObserver {
     await performSignOutDeregistration(
       fallbackToken: _registeredMessagingToken,
       readToken: messaging.getToken,
-      write: (token) => firestore.collection('users').doc(uid).set(
-        signOutDeregistrationFields(
-          token: token,
-          arrayRemove: FieldValue.arrayRemove,
-          delete: FieldValue.delete(),
-          serverTimestamp: FieldValue.serverTimestamp(),
-        ),
-        SetOptions(merge: true),
-      ),
+      write: (token) => firestore
+          .collection('users')
+          .doc(uid)
+          .set(
+            signOutDeregistrationFields(
+              token: token,
+              arrayRemove: FieldValue.arrayRemove,
+              delete: FieldValue.delete(),
+              serverTimestamp: FieldValue.serverTimestamp(),
+            ),
+            SetOptions(merge: true),
+          ),
       deleteToken: messaging.deleteToken,
       onWriteError: _setSyncError,
       onDegraded: (error) {
@@ -8527,6 +9141,7 @@ class FirebaseAppState extends AppState with WidgetsBindingObserver {
       },
     );
     _registeredMessagingToken = null;
+    _reportedDeviceSignature = null;
   }
 
   Future<void> _sendBookingPush(
@@ -8585,6 +9200,9 @@ class FirebaseAppState extends AppState with WidgetsBindingObserver {
 
     if (user == null) {
       _suppressTokenRegistration = true;
+      // The next owner to sign in must look their salon up again rather than
+      // inherit the previous session's answer.
+      _ownerSalonResolved = false;
       _activeRole = null;
       _customerAccount = null;
       _ownerAccount = null;
@@ -8617,7 +9235,19 @@ class FirebaseAppState extends AppState with WidgetsBindingObserver {
           _customerAccount = account;
         } else if (role == UserRole.owner && _activeRole == UserRole.owner) {
           _ownerAccount = account;
-          unawaited(_saveMessagingToken(user.uid));
+          // Re-register only when the profile has stopped routing alerts to
+          // this phone, e.g. after the server dropped its token. Registering
+          // writes this same document, so doing it on every snapshot answered
+          // each write with another one, forever.
+          final token = _registeredMessagingToken;
+          if (token == null ||
+              !isMessagingRegistrationCurrent(
+                data,
+                token: token,
+                isOwnerSession: true,
+              )) {
+            unawaited(_saveMessagingToken(user.uid));
+          }
           _syncOwnerBookingAlarm();
         }
         notifyListeners();
@@ -8701,6 +9331,12 @@ class FirebaseAppState extends AppState with WidgetsBindingObserver {
           .limit(1)
           .get();
       final (doc, ownerSalons) = await (accountFuture, ownerSalonsFuture).wait;
+      // This query already carries the owner's own salon. Folding it into the
+      // list here means the dashboard can paint from it, instead of waiting
+      // on the whole-collection listener that gates `salonsLoaded` — which on
+      // a slow or App-Check-refused connection may never deliver at all.
+      _mergeSalonDocuments(ownerSalons.docs);
+      _ownerSalonResolved = true;
       final data = doc.data() ?? {};
       _referralOnboardingRequired =
           data['referralOnboardingCompleted'] == false;
@@ -9089,6 +9725,11 @@ class FirebaseAppState extends AppState with WidgetsBindingObserver {
     _activateRole(role, resolvedAccount);
     if (role == UserRole.customer) {
       unawaited(_refreshCustomerProinWalletInBackground());
+    } else if (role == UserRole.owner) {
+      // Not awaited: the login button should not hold the user while this
+      // runs. The dashboard shows its spinner until this resolves, which it
+      // always does — unlike the listener it used to wait on.
+      unawaited(_loadOwnerSalonDirect(resolvedAccount.id));
     }
     // claimLoginRole already writes the authoritative profile. Push token
     // registration is independent and should not add several extra network
@@ -9394,8 +10035,57 @@ List<T> parseDocuments<T, D>(
   return parsed;
 }
 
-Salon _salonFromFirestore(DocumentSnapshot<Map<String, dynamic>> doc) {
-  final data = doc.data() ?? {};
+Salon _salonFromFirestore(DocumentSnapshot<Map<String, dynamic>> doc) =>
+    _salonFromData(doc.id, doc.data() ?? const <String, dynamic>{});
+
+/// The owner's salon as plain values, to be kept on the phone by the app
+/// itself rather than by Firestore. Mirrors the fields [_salonFromData] reads,
+/// so the copy is rebuilt by the same code as the live document.
+@visibleForTesting
+Map<String, Object?> ownerSalonCopyData(Salon salon) => {
+  'id': salon.id,
+  'name': salon.name,
+  'ownerName': salon.ownerName,
+  'address': salon.address,
+  'directionsUrl': salon.directionsUrl,
+  'phone': salon.phone,
+  'email': salon.email,
+  'logoUrl': salon.logoUrl,
+  'photoUrls': salon.photoUrls,
+  'distanceLabel': salon.distanceLabel,
+  'rating': salon.rating,
+  'reviewCount': salon.reviewCount,
+  'openTime': salon.openTime,
+  'closeTime': salon.closeTime,
+  'isOpen': salon.isOpen,
+  'instantBookingsEnabled': salon.instantBookingsEnabled,
+  'instantBookingsPausedDate': salon.instantBookingsPausedDate ?? '',
+  'approvalStatus': salon.approvalStatus,
+  'services': [
+    for (final service in salon.services)
+      {
+        'id': service.id,
+        'name': service.name,
+        'category': service.category,
+        'price': service.price,
+        'durationMinutes': service.durationMinutes,
+        'isAvailable': service.isAvailable,
+        'instantBookingEnabled': service.instantBookingEnabled,
+        'isCustom': service.isCustom,
+      },
+  ],
+};
+
+/// Rebuilds a salon from [ownerSalonCopyData], or null when the copy is not
+/// usable.
+@visibleForTesting
+Salon? ownerSalonFromCopy(Map<String, dynamic> data) {
+  final id = data['id'];
+  if (id is! String || id.trim().isEmpty) return null;
+  return _salonFromData(id, data);
+}
+
+Salon _salonFromData(String id, Map<String, dynamic> data) {
   final rawServices = data['services'];
   final services = canonicalSalonServices(
     (rawServices is List ? rawServices : const [])
@@ -9404,7 +10094,7 @@ Salon _salonFromFirestore(DocumentSnapshot<Map<String, dynamic>> doc) {
         .toList(),
   );
   return Salon(
-    id: doc.id,
+    id: id,
     name: _string(data['name'], ''),
     ownerName: _string(data['ownerName'], ''),
     address: _string(data['address'], ''),

@@ -12,6 +12,14 @@
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT"/>
     <uses-permission android:name="android.permission.WAKE_LOCK"/>
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
+    <!-- Keeps the process resident while a salon owner is signed in. The
+         booking alert is a data-only message, and Android withholds those from
+         an app in the "Restricted" background state - a state owners reach
+         without acting and which vendor battery managers re-apply after it is
+         cleared. A foreground service is the only mechanism that keeps the
+         alert working with the app closed. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE"/>
 
     <application
         android:label="Pritze"
@@ -65,6 +73,26 @@
         <receiver
             android:name="com.dexterous.flutterlocalnotifications.ActionBroadcastReceiver"
             android:exported="false" />
+        <!-- Sees each FCM message beside the Firebase plugin's own receiver and
+             plays the booking alert's sound natively. Some phones (Xiaomi
+             MIUI/HyperOS) ship app channel sounds switched off, which left the
+             alert shown but silent. -->
+        <receiver
+            android:name=".OwnerAlertPushReceiver"
+            android:exported="true"
+            android:permission="com.google.android.c2dm.permission.SEND">
+            <intent-filter>
+                <action android:name="com.google.android.c2dm.intent.RECEIVE" />
+            </intent-filter>
+        </receiver>
+        <service
+            android:name=".OwnerAlertService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Keeps a salon owner reachable so instant booking requests ring on their phone while the app is closed." />
+        </service>
     </application>
     <!-- Required to query activities that can process text, see:
          https://developer.android.com/training/package-visibility and

@@ -286,9 +286,6 @@ class _SalonBookingScreenState extends State<SalonBookingScreen> {
         eligibleBarbers.any((barber) => barber.id == _selectedBarberId)
         ? _selectedBarberId
         : null;
-    final selectedBarber = eligibleBarbers
-        .where((barber) => barber.id == selectedBarberId)
-        .firstOrNull;
     final slots = appState.slotsForService(
       widget.salonId,
       widget.serviceId,
@@ -521,43 +518,28 @@ class _SalonBookingScreenState extends State<SalonBookingScreen> {
           ],
           const SizedBox(height: 14),
           if (!isInstantOnly) ...[
-            if (selectedBarber == null) ...[
-              const SectionHeader(title: 'Choose barber'),
-              const SizedBox(height: 10),
-              _BarberChoiceList(
-                barbers: eligibleBarbers,
-                selectedBarberId: selectedBarberId,
-                accent: accent,
-                onSelected: (barberId) {
-                  setState(() {
-                    _selectedBarberId = barberId;
-                    _selectedSlotKey = null;
-                  });
-                },
-              ),
-              const SizedBox(height: 22),
-            ] else ...[
-              GlassCard(
-                color: accent.withAlpha(12),
-                child: Row(
-                  children: [
-                    SoftIconBox(
-                      icon: Icons.badge_outlined,
-                      color: accent,
-                      size: 42,
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Text(
-                        'Booking with ${selectedBarber.name}',
-                        style: Theme.of(context).textTheme.titleMedium,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 22),
-            ],
+            // Every choice stays on screen, ticked when chosen. Replacing the
+            // list with a "Booking with ..." card once a barber was picked
+            // left the customer no way to switch barber, or back to "Any
+            // available", short of leaving the page.
+            const SectionHeader(title: 'Choose barber'),
+            const SizedBox(height: 10),
+            _BarberChoiceList(
+              barbers: eligibleBarbers,
+              selectedBarberId: selectedBarberId,
+              accent: accent,
+              onSelected: (barberId) {
+                // Re-tapping the ticked card changes nothing, so it must not
+                // throw away the slot already picked for that barber.
+                if (barberId == selectedBarberId) return;
+                setState(() {
+                  _selectedBarberId = barberId;
+                  // Each barber has their own free slots.
+                  _selectedSlotKey = null;
+                });
+              },
+            ),
+            const SizedBox(height: 22),
             const SectionHeader(title: 'Available slots'),
             const SizedBox(height: 10),
             if (slots.isEmpty)
@@ -2580,7 +2562,10 @@ class _InstantBookingCard extends StatelessWidget {
   }
 }
 
-class _BarberChoiceList extends StatelessWidget {
+const _barberCardWidth = 164.0;
+const _barberCardGap = 10.0;
+
+class _BarberChoiceList extends StatefulWidget {
   final List<Barber> barbers;
   final String? selectedBarberId;
   final Color accent;
@@ -2594,7 +2579,64 @@ class _BarberChoiceList extends StatelessWidget {
   });
 
   @override
+  State<_BarberChoiceList> createState() => _BarberChoiceListState();
+}
+
+class _BarberChoiceListState extends State<_BarberChoiceList> {
+  final _scroll = ScrollController();
+
+  /// Set once the cards have first been laid out. Only that first layout
+  /// scrolls; afterwards the row stays where the customer left it.
+  bool _revealed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _scheduleReveal();
+  }
+
+  @override
+  void didUpdateWidget(covariant _BarberChoiceList oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // The barbers can arrive after the page has opened.
+    if (!_revealed) _scheduleReveal();
+  }
+
+  @override
+  void dispose() {
+    _scroll.dispose();
+    super.dispose();
+  }
+
+  void _scheduleReveal() {
+    WidgetsBinding.instance.addPostFrameCallback((_) => _revealSelected());
+  }
+
+  /// A barber chosen before the page opened - from the salon page, or kept
+  /// from the booking being rescheduled - can sit past the edge of this row.
+  /// Bring its tick into view, or nothing visible looks chosen.
+  void _revealSelected() {
+    // No clients yet means no cards yet (the empty state is showing).
+    if (_revealed || !mounted || !_scroll.hasClients) return;
+    _revealed = true;
+    final index = widget.barbers.indexWhere(
+      (barber) => barber.id == widget.selectedBarberId,
+    );
+    if (index == -1) return;
+    final position = _scroll.position;
+    // +1 for the "Any available" card in front; centred where possible.
+    final cardStart = (index + 1) * (_barberCardWidth + _barberCardGap);
+    final target =
+        cardStart - (position.viewportDimension - _barberCardWidth) / 2;
+    _scroll.jumpTo(target.clamp(0.0, position.maxScrollExtent));
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final barbers = widget.barbers;
+    final selectedBarberId = widget.selectedBarberId;
+    final accent = widget.accent;
+    final onSelected = widget.onSelected;
     if (barbers.isEmpty) {
       return const EmptyState(
         icon: Icons.badge,
@@ -2610,12 +2652,15 @@ class _BarberChoiceList extends StatelessWidget {
     return SizedBox(
       height: cardHeight,
       child: ListView.separated(
+        controller: _scroll,
         scrollDirection: Axis.horizontal,
         itemCount: barbers.length + 1,
-        separatorBuilder: (context, index) => const SizedBox(width: 10),
+        separatorBuilder: (context, index) =>
+            const SizedBox(width: _barberCardGap),
         itemBuilder: (context, index) {
           if (index == 0) {
             return _BarberChoiceCard(
+              key: const ValueKey('barber-choice-any'),
               title: 'Any available',
               subtitle:
                   '${barbers.length} ${barbers.length == 1 ? 'barber' : 'barbers'}',
@@ -2628,6 +2673,7 @@ class _BarberChoiceList extends StatelessWidget {
 
           final barber = barbers[index - 1];
           return _BarberChoiceCard(
+            key: ValueKey('barber-choice-${barber.id}'),
             title: barber.name,
             subtitle: barber.speciality,
             initial: barber.name.characters.first,
@@ -2650,6 +2696,7 @@ class _BarberChoiceCard extends StatelessWidget {
   final VoidCallback onTap;
 
   const _BarberChoiceCard({
+    super.key,
     required this.title,
     required this.subtitle,
     required this.initial,
@@ -2664,7 +2711,7 @@ class _BarberChoiceCard extends StatelessWidget {
       borderRadius: BorderRadius.circular(8),
       onTap: onTap,
       child: Container(
-        width: 164,
+        width: _barberCardWidth,
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
           color: selected ? accent.withAlpha(16) : Colors.white,

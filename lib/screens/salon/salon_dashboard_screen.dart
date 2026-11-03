@@ -68,10 +68,18 @@ class _SalonDashboardScreenState extends State<SalonDashboardScreen> {
       return const _OwnerLoginGate();
     }
     if (appState.ownerSalonOrNull == null) {
-      // Before the first snapshot an empty salon list is indistinguishable
+      // Before the salon is known, "no salon in the list" is indistinguishable
       // from "this owner has no salon". Registration replaces the dashboard
       // and has nothing to pop back to, so never show it on a guess.
-      if (!appState.salonsLoaded) {
+      // `ownerSalonResolved` is the direct per-owner read and is the one that
+      // normally answers; the full list is only a second opinion.
+      final known = appState.ownerSalonResolved || appState.salonsLoaded;
+      if (!known) {
+        if (appState.salonsLoadFailed) {
+          // Never fall through to registration on a failed load: an owner who
+          // does have a salon would be trapped on a screen they cannot leave.
+          return _SalonLoadFailed(onRetry: appState.retrySalonsLoad);
+        }
         return const Scaffold(
           body: Center(child: CircularProgressIndicator()),
         );
@@ -2427,8 +2435,16 @@ class _OwnerAlertReadinessBannerState extends State<_OwnerAlertReadinessBanner>
     final opened = switch (blocker) {
       OwnerAlertBlocker.fullScreenIntentDenied =>
         await OwnerAlertDeviceSettings.openFullScreenIntentSettings(),
-      OwnerAlertBlocker.batteryOptimised =>
+      // Without a button here an owner whose notifications are off - the
+      // default on Android 13+ - was told what was wrong and given no way
+      // to fix it.
+      OwnerAlertBlocker.notificationsDisabled =>
+        await OwnerAlertDeviceSettings.openNotificationSettings(),
+      // Restricted background is set on the same App info screen as battery.
+      OwnerAlertBlocker.backgroundRestricted =>
         await OwnerAlertDeviceSettings.openBatteryOptimizationSettings(),
+      OwnerAlertBlocker.alertChannelBlocked =>
+        await OwnerAlertDeviceSettings.openAlertChannelSettings(),
       _ => false,
     };
     if (!opened && mounted) {
@@ -2490,8 +2506,7 @@ class _OwnerAlertReadinessBannerState extends State<_OwnerAlertReadinessBanner>
                       ),
                     ),
                   ),
-                  if (blocker == OwnerAlertBlocker.fullScreenIntentDenied ||
-                      blocker == OwnerAlertBlocker.batteryOptimised)
+                  if (blocker != OwnerAlertBlocker.noPushToken)
                     TextButton(
                       key: ValueKey('fix-owner-alert-${blocker.name}'),
                       onPressed: () => _fix(blocker),
@@ -3897,4 +3912,47 @@ class _StatusButtonState extends State<_StatusButton> {
     BookingStatus.completed => 'Completing...',
     BookingStatus.pending => 'Updating...',
   };
+}
+
+class _SalonLoadFailed extends StatelessWidget {
+  const _SalonLoadFailed({required this.onRetry});
+
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Salon dashboard')),
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.cloud_off_rounded, size: 40),
+              const SizedBox(height: 12),
+              Text(
+                'Could not load your salon',
+                style: Theme.of(context).textTheme.titleMedium,
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'Check your internet connection and try again.',
+                style: Theme.of(context).textTheme.bodySmall,
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 16),
+              FilledButton.icon(
+                key: const ValueKey('retry-salon-load'),
+                onPressed: onRetry,
+                icon: const Icon(Icons.refresh_rounded),
+                label: const Text('Retry'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }

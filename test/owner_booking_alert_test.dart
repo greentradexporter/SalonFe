@@ -100,7 +100,9 @@ void main() {
       expect(android['additionalFlags'], contains(4));
       expect(android['ongoing'], isTrue);
       expect(android['autoCancel'], isFalse);
-      expect(android['sound'], 'owner_booking_request');
+      // The channel is silent: the ring is played natively, because some
+      // phones ship channel sounds switched off.
+      expect(android['playSound'], isFalse);
       expect(android['timeoutAfter'], inInclusiveRange(1, 23000));
       final actions = android['actions'] as List;
       expect(actions.map((action) => action['id']), [
@@ -383,7 +385,7 @@ void main() {
       );
       final show = calls.singleWhere((call) => call.method == 'show');
       final android = (show.arguments as Map)['platformSpecifics'] as Map;
-      expect(android['channelId'], 'pritze_owner_booking_requests_v4');
+      expect(android['channelId'], 'pritze_owner_booking_requests_v5');
       expect(android['additionalFlags'], contains(4));
     });
 

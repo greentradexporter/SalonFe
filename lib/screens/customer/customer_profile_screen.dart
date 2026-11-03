@@ -829,11 +829,13 @@ class _ProinActivityTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final item = presentation;
     final date = entry.createdAt.toLocal();
+    final hour12 = date.hour % 12 == 0 ? 12 : date.hour % 12;
     final dateLabel =
         '${date.day.toString().padLeft(2, '0')}/'
         '${date.month.toString().padLeft(2, '0')}/${date.year} · '
-        '${date.hour.toString().padLeft(2, '0')}:'
-        '${date.minute.toString().padLeft(2, '0')}';
+        '$hour12:'
+        '${date.minute.toString().padLeft(2, '0')} '
+        '${date.hour >= 12 ? 'PM' : 'AM'}';
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
