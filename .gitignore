@@ -67,3 +67,9 @@ android/app/*.keystore
 
 # Private legal/handover drafts - never ship or commit
 _private_legal/
+
+# Build outputs and local heap dumps: never commit these
+/release_artifacts/
+/releases/
+/release/
+*.hprof
