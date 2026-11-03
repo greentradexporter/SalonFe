@@ -162,6 +162,15 @@ const LEGACY_OWNER_BOOKING_REQUEST_CHANNEL =
 const OWNER_ALERT_TOKEN_FIELD = "ownerAlertV4Tokens";
 const OWNER_ALERT_TOKEN_FIELD_V3 = "ownerAlertV3Tokens";
 const OWNER_BOOKING_REQUEST_SOUND = "owner_booking_request";
+// A scheduled booking is not urgent the way an instant request is: it gets its
+// own tone so the owner can tell the two apart, but it rings once and does not
+// take over the screen.
+// v2 is a silent channel: from build 55 the app plays this tone itself when
+// the push arrives, because some phones ship channel sounds switched off. A
+// build without v2 falls back to the default channel and its default sound.
+const SCHEDULED_BOOKING_REQUEST_CHANNEL =
+  "pritze_scheduled_booking_requests_v2";
+const SCHEDULED_BOOKING_REQUEST_SOUND = "scheduled_booking_request";
 const IOS_OWNER_BOOKING_REQUEST_CATEGORY = "PRITZE_BOOKING_REQUEST_V2";
 const OWNER_ALERT_REPEAT_DELAY_MS = 15_000;
 const OWNER_ALERT_ATTEMPTS = 10;
@@ -5255,7 +5264,13 @@ exports.alertOwnerOnBookingCreated = onDocumentCreated(
         sendToUsers([booking.ownerUid].filter(Boolean), {
         title: "New scheduled booking",
         body: `${booking.customerName || "A customer"} booked ${booking.serviceName || "a service"}.`,
-        data: bookingNotificationData(bookingId, booking),
+        data: {
+          ...bookingNotificationData(bookingId, booking),
+          channel: SCHEDULED_BOOKING_REQUEST_CHANNEL,
+        },
+        androidChannelId: SCHEDULED_BOOKING_REQUEST_CHANNEL,
+        androidSound: SCHEDULED_BOOKING_REQUEST_SOUND,
+        apnsSound: "scheduled_booking_request.wav",
         requiredActiveRolesByUser: bookingRecipientRoles(booking),
         }),
         customerDeliveryPromise,

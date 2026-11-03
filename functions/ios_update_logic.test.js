@@ -1,6 +1,7 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
-const {resolveIosUpdateVersion} = require("./ios_update_logic");
+const {resolveIosUpdateVersion, versionAtLeast} =
+  require("./ios_update_logic");
 const iosRelease = require("./ios_release.json");
 
 const resolve = (overrides) => resolveIosUpdateVersion({
@@ -52,10 +53,13 @@ test("ios_release.json stays in step with the build being shipped", () => {
   const pubspec = fs.readFileSync("../pubspec.yaml", "utf8");
   const match = pubspec.match(/^version:\s*([0-9.]+)\+([0-9]+)/m);
   assert.ok(match, "pubspec.yaml has no version line");
-  assert.equal(
-      iosRelease.versionName,
-      match[1],
-      "ios_release.json versionName must match pubspec.yaml",
+  // Not equality: Android moves ahead on its own, so pubspec's version name
+  // can be newer than the build iOS last shipped. What must hold is that iOS
+  // never advertises a version that was never built.
+  assert.ok(
+      versionAtLeast(match[1], iosRelease.versionName),
+      `ios_release.json advertises ${iosRelease.versionName} but pubspec.yaml ` +
+      `is at ${match[1]}: iOS would point at a version that does not exist`,
   );
   // Not equality: pubspec's build number is shared by both platforms, and the
   // two legitimately diverge when one store gets a build the other skips. What

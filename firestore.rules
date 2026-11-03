@@ -118,6 +118,11 @@ service cloud.firestore {
         'lastFcmToken',
         'notificationsEnabled',
         'ownerNotificationsEnabled',
+        // Which build the device runs, so a silent phone can be diagnosed
+        // without guessing from which token list it landed in.
+        'appVersion',
+        'appBuildNumber',
+        'alertDiagnostics',
         // Sign-out clears this so the server stops routing owner booking
         // alerts to a phone nobody is signed in on. Only claimLoginRole sets
         // it; it gates notification routing, never any rule's authority,

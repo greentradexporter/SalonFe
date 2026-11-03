@@ -37,6 +37,13 @@ function decodeValue(value) {
   if ("arrayValue" in value) {
     return (value.arrayValue.values || []).map(decodeValue);
   }
+  if ("mapValue" in value) {
+    return Object.fromEntries(
+        Object.entries(value.mapValue.fields || {}).map(
+            ([key, item]) => [key, decodeValue(item)],
+        ),
+    );
+  }
   return null;
 }
 
@@ -143,6 +150,13 @@ async function main() {
       role: user?.role,
       activeRole: user?.activeRole,
       ownerNotificationsEnabled: user?.ownerNotificationsEnabled,
+      appVersion: user?.appVersion || "",
+      appBuildNumber: user?.appBuildNumber || 0,
+      // Written by every build, old or new, on each push registration. Recent
+      // activity with no appVersion means an old build is still writing - or
+      // a phone is uploading writes an old build queued up while offline.
+      fcmUpdatedAt: user?.fcmUpdatedAt || "",
+      diagnostics: user?.alertDiagnostics || null,
       tokens: (user?.ownerAlertV4Tokens || []).length,
       legacyTokens: (user?.ownerAlertV3Tokens || []).length,
       problems: auditOwner(user),
@@ -154,6 +168,23 @@ async function main() {
     for (const row of rows) {
       console.log(
           `${row.problems.length ? "✗" : "✓"} ${row.name}` +
+          // The app finds an owner's salon only at "salon-" + their uid.
+          `\n    salon=${row.salonId} ownerUid=${row.ownerUid}` +
+          ` idMatchesOwner=${row.salonId === "salon-" +
+            row.ownerUid.replace(/[^A-Za-z0-9_-]/g, "-")}` +
+          `\n    app=${row.appVersion || "?"} (${row.appBuildNumber || "?"})` +
+          ` lastRegistration=${row.fcmUpdatedAt || "?"}` +
+          (row.diagnostics ?
+            `\n    device=${row.diagnostics.device} (SDK ${row.diagnostics.sdkInt})` +
+            `\n    serviceRunning=${row.diagnostics.serviceRunning}` +
+            ` notificationsAllowed=${row.diagnostics.notificationsAllowed}` +
+            ` channelBlocked=${row.diagnostics.channelBlocked}` +
+            ` channelMissing=${row.diagnostics.channelMissing}` +
+            `\n    backgroundRestricted=${row.diagnostics.backgroundRestricted}` +
+            ` ignoringBatteryOpt=${row.diagnostics.ignoringBatteryOptimizations}` +
+            (row.diagnostics.startError ?
+              `\n    startError=${row.diagnostics.startError}` : "") :
+            "") +
           `\n    role=${JSON.stringify(row.role)}` +
           ` activeRole=${JSON.stringify(row.activeRole)}` +
           ` ownerNotificationsEnabled=${JSON.stringify(row.ownerNotificationsEnabled)}` +
