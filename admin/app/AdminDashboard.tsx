@@ -11,6 +11,7 @@ import {
 } from "firebase/auth";
 import { getFunctions, httpsCallable } from "firebase/functions";
 import { isCurrentOperationalBooking, isCurrentOperationalAlert, operationalDayStart, recentTerminalBookings } from "./operational-view";
+import CustomerProfile, { type CustomerLocation } from "./CustomerProfile";
 
 type View = "overview" | "intelligence" | "arrivals" | "bookings" | "customers" | "salons" | "barbers" | "reviews" | "settlements" | "discounts" | "proin" | "reports" | "activity" | "guide";
 type BookingStatus = "pending" | "confirmed" | "inProgress" | "completed" | "cancelled" | "rejected";
@@ -132,6 +133,7 @@ type Customer = {
   updatedAtMillis?: number;
   salonRating: number;
   salonRatingCount: number;
+  customerLocation?: CustomerLocation | null;
 };
 
 type Review = {
@@ -1732,13 +1734,15 @@ function salonServiceAction(salon: Salon, service: SalonService): AdminAction {
 }
 
 function CustomersView({ customers, bookings, search, canOperate, onAdminAction }: { customers: Customer[]; bookings: Booking[]; search: string } & AdminControlProps) {
+  const [profileId, setProfileId] = useState<string | null>(null);
+  const profile = customers.find((customer) => customer.id === profileId);
   const visible = customers.filter((customer) => !search || [customer.name, customer.phone, customer.email].some((value) => value.toLowerCase().includes(search)));
-  return <section className="panel main-panel"><div className="data-table customer-data phase-two-data"><div className="data-head"><span>Customer</span><span>Visits</span><span>Completion</span><span>Salon rating</span><span>Preferences</span><span>Control</span></div>{visible.map((customer) => {
+  return <><section className="panel main-panel"><div className="data-table customer-data phase-two-data"><div className="data-head"><span>Customer</span><span>Visits</span><span>Completion</span><span>Salon rating</span><span>Preferences</span><span>Control</span></div>{visible.map((customer) => {
     const visits = bookings.filter((booking) => booking.customerUid === customer.id);
     const completed = visits.filter((booking) => booking.status === "completed").length;
     const accountAction: AdminAction = { title: `${customer.adminSuspended ? "Restore" : "Suspend"} ${customer.name}`, description: customer.adminSuspended ? "Restore this customer's Firebase sign-in and app access." : "Block this customer's Firebase sign-in until an administrator restores the account.", confirmLabel: customer.adminSuspended ? "Restore account" : "Suspend account", callableName: "updateCustomerControlAsAdmin", payload: { customerUid: customer.id, adminSuspended: !customer.adminSuspended }, fields: [reasonField], tone: customer.adminSuspended ? "default" : "danger" };
-    return <div className={`data-row ${customer.adminSuspended ? "account-suspended" : ""}`} key={customer.id}><div className="profile-cell"><div className="customer-avatar">{initials(customer.name)}</div><div><strong>{customer.name}</strong><span>{customer.phone}</span><small>{customer.adminSuspended ? "Account suspended" : customer.email || "No email"}</small></div></div><strong>{visits.length}</strong><span>{visits.length ? Math.round(completed / visits.length * 100) : 0}%</span><span className="rating">{customer.salonRating ? customer.salonRating.toFixed(1) : "—"} ★ <small>({customer.salonRatingCount})</small></span><div className="tags">{customer.preferredStyles.slice(0, 2).map((style) => <span key={style}>{style}</span>)}</div><div className="row-controls"><button disabled={!canOperate} onClick={() => onAdminAction(customerProfileAction(customer))}>Edit</button><button disabled={!canOperate} className={customer.adminSuspended ? "" : "danger-link"} onClick={() => onAdminAction(accountAction)}>{customer.adminSuspended ? "Restore" : "Suspend"}</button><button disabled={!canOperate} onClick={() => onAdminAction(noteAction("customer", customer.id, customer.name))}>Note</button></div></div>;
-  })}</div>{!visible.length ? <EmptyState title="No customers found" detail="Try another name, phone number or email." /> : null}</section>;
+    return <div className={`data-row ${customer.adminSuspended ? "account-suspended" : ""}`} key={customer.id}><div className="profile-cell"><div className="customer-avatar">{initials(customer.name)}</div><div><strong>{customer.name}</strong><span>{customer.phone}</span><small>{customer.adminSuspended ? "Account suspended" : customer.email || "No email"}</small></div></div><strong>{visits.length}</strong><span>{visits.length ? Math.round(completed / visits.length * 100) : 0}%</span><span className="rating">{customer.salonRating ? customer.salonRating.toFixed(1) : "—"} ★ <small>({customer.salonRatingCount})</small></span><div className="tags">{customer.preferredStyles.slice(0, 2).map((style) => <span key={style}>{style}</span>)}</div><div className="row-controls"><button onClick={() => setProfileId(customer.id)} aria-label={`View profile for ${customer.name}`}>Profile</button><button disabled={!canOperate} onClick={() => onAdminAction(customerProfileAction(customer))}>Edit</button><button disabled={!canOperate} className={customer.adminSuspended ? "" : "danger-link"} onClick={() => onAdminAction(accountAction)}>{customer.adminSuspended ? "Restore" : "Suspend"}</button><button disabled={!canOperate} onClick={() => onAdminAction(noteAction("customer", customer.id, customer.name))}>Note</button></div></div>;
+  })}</div>{!visible.length ? <EmptyState title="No customers found" detail="Try another name, phone number or email." /> : null}</section>{profile ? <CustomerProfile customer={profile} onClose={() => setProfileId(null)} /> : null}</>;
 }
 
 function SalonApprovalRequests({ salons, search, canOperate, onAdminAction }: { salons: Salon[]; search: string } & AdminControlProps) {

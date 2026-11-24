@@ -51,6 +51,8 @@ The brand is **SalonFe**, using coral `#FF7B54`, white, and black. Shared Flutte
 
 The current release source is **1.0.31+61**: available on Google Play and submitted to Apple for review with automatic release after approval. See [release notes](docs/salonfe_1_0_31_release.md), [discovery and sharing changes](docs/salonfe_discovery_updates.md), and [admin cloud repair notes](docs/admin_cloud_access_repair.md).
 
+SalonFe Control includes [customer discovery location profiles](docs/admin_customer_location.md) under Customers → Profile, showing the last consent-based approximate snapshot when one is saved.
+
 - [Public website](https://trimtime-46539.web.app)
 - [Privacy Policy](https://trimtime-46539.web.app/privacy)
 - [Terms & Conditions](https://trimtime-46539.web.app/terms)

@@ -127,6 +127,7 @@ const {
   validLocationUpdate,
 } = require("./arrival_tracking_logic");
 const {setGlobalOptions} = require("firebase-functions/v2");
+const {adminCustomerLocation} = require("./admin_customer_location");
 const {HttpsError, onCall, onRequest} = require("firebase-functions/v2/https");
 const {
   onDocumentCreated,
@@ -9168,6 +9169,10 @@ function adminCustomerRecord(document) {
   const data = document.data() || {};
   return {
     ...adminCustomerProfileView(document.id, data),
+    customerLocation: adminCustomerLocation(
+      data.customerLocation,
+      adminMillis(data.customerLocation?.capturedAt),
+    ),
     salonRating: Math.max(0, Number(data.salonRating) || 0),
     salonRatingCount: Math.max(0, Number(data.salonRatingCount) || 0),
   };
