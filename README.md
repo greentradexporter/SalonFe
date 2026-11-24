@@ -49,7 +49,7 @@ Production signing keys, reviewer credentials, local environment files, generate
 
 The brand is **SalonFe**, using coral `#FF7B54`, white, and black. Shared Flutter branding lives in `lib/theme/app_brand.dart` and `lib/theme/app_theme.dart`. Successful and cancelled booking status colours remain green and red.
 
-The current release source is **1.0.30+60**. See [release notes](docs/salonfe_1_0_30_release.md), [discovery and sharing changes](docs/salonfe_discovery_updates.md), and [admin cloud repair notes](docs/admin_cloud_access_repair.md).
+The current release source is **1.0.31+61**: available on Google Play and submitted to Apple for review with automatic release after approval. See [release notes](docs/salonfe_1_0_31_release.md), [discovery and sharing changes](docs/salonfe_discovery_updates.md), and [admin cloud repair notes](docs/admin_cloud_access_repair.md).
 
 - [Public website](https://trimtime-46539.web.app)
 - [Privacy Policy](https://trimtime-46539.web.app/privacy)
