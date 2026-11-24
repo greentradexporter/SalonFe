@@ -271,6 +271,12 @@ void main() {
     expect(tester.takeException(), isNull);
     if (const bool.fromEnvironment('CAPTURE_PREVIEW')) {
       await tester.runAsync(() async {
+        for (final image in tester.widgetList<Image>(find.byType(Image))) {
+          await precacheImage(image.image, key.currentContext!);
+        }
+      });
+      await tester.pumpAndSettle();
+      await tester.runAsync(() async {
         final image =
             await (key.currentContext!.findRenderObject()
                     as RenderRepaintBoundary)
