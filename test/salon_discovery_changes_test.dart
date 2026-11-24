@@ -1,4 +1,5 @@
 import 'package:nashik_salon_booking/models/app_models.dart';
+import 'package:nashik_salon_booking/models/service_catalog.dart';
 import 'dart:io';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
@@ -69,6 +70,15 @@ void main() {
     expect(serviceArtFor('Bridal Makeup'), ServiceArt.makeup);
     expect(serviceArtFor('Pedicure'), ServiceArt.pedicure);
     expect(serviceArtFor('Hair Wash'), ServiceArt.wash);
+    final assets = [
+      'Facial',
+      'Spa',
+      'Bridal Makeup',
+    ].map((name) => serviceIconAssetForService(name)).toSet();
+    expect(assets, hasLength(3));
+    for (final asset in assets) {
+      expect(File(asset).existsSync(), isTrue, reason: asset);
+    }
   });
   testWidgets(
     'customer skips login to browse and a shared link opens the specific salon',
