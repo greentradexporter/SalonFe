@@ -233,6 +233,12 @@ void main() {
         expect(tester.takeException(), isNull);
         expect(find.byType(BrandWordmark), findsOneWidget);
         if (capture) {
+          await tester.runAsync(() async {
+            for (final image in tester.widgetList<Image>(find.byType(Image))) {
+              await precacheImage(image.image, boundaryKey.currentContext!);
+            }
+          });
+          await tester.pumpAndSettle();
           final logo = find.descendant(
             of: find.byType(BrandWordmark),
             matching: find.byType(RawImage),

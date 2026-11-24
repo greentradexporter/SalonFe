@@ -190,7 +190,7 @@ function onMobileCall(options, handler) {
 // This stays at the last version known to be publicly downloadable. Release
 // builds update android_release.json automatically, while Google Play remains
 // the authority that decides when the candidate can be advertised to users.
-const ANDROID_LAST_CONFIRMED_PUBLIC_VERSION_CODE = 59;
+const ANDROID_LAST_CONFIRMED_PUBLIC_VERSION_CODE = 60;
 const ANDROID_PLAY_STORE_URL =
   "https://play.google.com/store/apps/details?id=com.trimtime.app";
 const ANDROID_RELEASES_API_URL =

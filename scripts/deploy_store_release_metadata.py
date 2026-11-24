@@ -5,7 +5,13 @@ release JSON files. Source-only updates retain function limits and IAM. Restore
 external Run scaling/boost safeguards if Google resets them during the build.
 """
 import concurrent.futures,copy,io,json,pathlib,subprocess,time,urllib.parse,urllib.request,zipfile
-PROJECT='trimtime-46539';OUT=pathlib.Path('output/salonfe-release-60/backend');OUT.mkdir(parents=True,exist_ok=True)
+PROJECT='trimtime-46539'
+android_release=json.loads(pathlib.Path('functions/android_release.json').read_text())
+ios_release=json.loads(pathlib.Path('functions/ios_release.json').read_text())
+build=android_release['candidateVersionCode']
+if build != ios_release['candidateBuildNumber'] or android_release['versionName'] != ios_release['versionName']:
+ raise RuntimeError('Android and iOS release metadata must agree')
+OUT=pathlib.Path(f'output/salonfe-release-{build}/backend');OUT.mkdir(parents=True,exist_ok=True)
 def token():return subprocess.check_output(['gcloud','auth','print-access-token'],text=True).strip()
 def api(host,path,body=None,method=None,data=None):
  payload=data if data is not None else json.dumps(body).encode() if body is not None else None
@@ -34,7 +40,7 @@ else:
   for item in old.infolist():new.writestr(item,replacements.pop(item.filename,old.read(item.filename)))
   for name,content in replacements.items():new.writestr(name,content)
  archive=output.getvalue();(OUT/'release-functions-source.zip').write_bytes(archive)
- obj='salonfe-release-60-'+str(int(time.time()))+'/function-source.zip'
+ obj=f'salonfe-release-{build}-'+str(int(time.time()))+'/function-source.zip'
  uploaded=api('storage.googleapis.com','upload/storage/v1/b/'+original['bucket']+'/o?uploadType=media&name='+urllib.parse.quote(obj,safe=''),method='POST',data=archive)
  source={'storageSource':{'bucket':uploaded['bucket'],'object':uploaded['name'],'generation':uploaded['generation']}}
  source_file.write_text(json.dumps(source,indent=2))
