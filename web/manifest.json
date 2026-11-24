@@ -1,11 +1,11 @@
 {
-    "name": "Pritze",
-    "short_name": "Pritze",
+    "name": "SalonFe",
+    "short_name": "SalonFe",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#263248",
-    "theme_color": "#263248",
-    "description": "Salon discovery and booking for Pritze.",
+    "background_color": "#FFFFFF",
+    "theme_color": "#FF7B54",
+    "description": "Salon discovery and booking for SalonFe.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

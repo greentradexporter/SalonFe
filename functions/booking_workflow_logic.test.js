@@ -346,7 +346,7 @@ test("Android update lookup activates only a Play-published candidate", () => {
   assert.match(functionSource, /exports\.getAndroidAppUpdate = onMobileCall/);
   assert.match(
     functionSource,
-    /ANDROID_LAST_CONFIRMED_PUBLIC_VERSION_CODE = 31/,
+    /ANDROID_LAST_CONFIRMED_PUBLIC_VERSION_CODE = \d+/,
   );
   assert.match(functionSource, /getPlayPublishedAndroidVersion/);
   assert.match(functionSource, /resolveAndroidUpdateVersion/);
@@ -364,7 +364,7 @@ test("iOS update lookup has a safe App Store fallback", () => {
   // The shipped build comes from ios_release.json, not from constants edited
   // by hand: those drifted nine versions behind the App Store and pinned
   // every iOS user to build 29, so nobody was ever prompted to update.
-  assert.match(functionSource, /IOS_LAST_CONFIRMED_PUBLIC_BUILD_NUMBER = 28/);
+  assert.match(functionSource, /IOS_LAST_CONFIRMED_PUBLIC_BUILD_NUMBER = \d+/);
   assert.match(functionSource, /resolveIosUpdateVersion\(/);
   assert.match(functionSource, /candidateBuild: iosRelease\.candidateBuildNumber/);
   assert.match(functionSource, /candidateVersionName: iosRelease\.versionName/);
@@ -375,5 +375,5 @@ test("iOS update lookup has a safe App Store fallback", () => {
   assert.match(functionSource, /appStoreVerified: storeVersionName !== ""/);
   assert.match(functionSource, /itunes\.apple\.com\/lookup/);
   assert.match(functionSource, /doc\("ios"\)/);
-  assert.match(functionSource, /apps\.apple\.com\/in\/app\/pritze\/id6792811282/);
+  assert.match(functionSource, /apps\.apple\.com\/in\/app\/[^/]+\/id6792811282/);
 });

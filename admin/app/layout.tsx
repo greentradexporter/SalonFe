@@ -2,22 +2,22 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Pritze Control Center",
-  description: "Real-time salon operations and booking supervision for Pritze.",
+  title: "SalonFe Control Center",
+  description: "Real-time salon operations and booking supervision for SalonFe.",
   icons: {
-    icon: "/pritze-icon.png",
-    shortcut: "/pritze-icon.png",
-    apple: "/pritze-icon.png",
+    icon: "/salonfe-icon.png",
+    shortcut: "/salonfe-icon.png",
+    apple: "/salonfe-icon.png",
   },
   openGraph: {
-    title: "Pritze Control Center",
-    description: "Real-time salon operations and booking supervision for Pritze.",
+    title: "SalonFe Control Center",
+    description: "Real-time salon operations and booking supervision for SalonFe.",
     type: "website",
   },
   twitter: {
     card: "summary",
-    title: "Pritze Control Center",
-    description: "Real-time salon operations and booking supervision for Pritze.",
+    title: "SalonFe Control Center",
+    description: "Real-time salon operations and booking supervision for SalonFe.",
   },
 };
 

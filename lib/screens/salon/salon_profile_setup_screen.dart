@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 
+import '../../widgets/brand_header.dart';
 import '../../models/app_models.dart';
 import '../../models/service_catalog.dart';
 import '../../state/app_state.dart';
@@ -10,10 +11,12 @@ import '../../theme/app_theme.dart';
 import '../../widgets/app_ui.dart';
 import '../../widgets/app_error_dialog.dart';
 import '../../widgets/service_icon.dart';
-import '../customer/customer_home_screen.dart';
+import '../entry/account_entry_screen.dart';
+import 'salon_barbers_editor.dart';
 
 class SalonProfileSetupScreen extends StatefulWidget {
-  const SalonProfileSetupScreen({super.key});
+  final bool embedded;
+  const SalonProfileSetupScreen({super.key, this.embedded = false});
 
   @override
   State<SalonProfileSetupScreen> createState() =>
@@ -27,11 +30,13 @@ class _SalonProfileSetupScreenState extends State<SalonProfileSetupScreen> {
   final _addressController = TextEditingController();
   final _directionsUrlController = TextEditingController();
   final _phoneController = TextEditingController();
-  final _emailController = TextEditingController();
+  final _barberNameController = TextEditingController();
+  final List<Barber> _pendingBarbers = [];
   final _openTimeController = TextEditingController();
   final _closeTimeController = TextEditingController();
   final _upiIdController = TextEditingController();
   List<String> _photoUrls = [];
+  final Set<int> _closedWeekdays = {};
   bool _loaded = false;
   bool _isSaving = false;
   bool _isImportingServices = false;
@@ -52,14 +57,10 @@ class _SalonProfileSetupScreenState extends State<SalonProfileSetupScreen> {
     _addressController.text = salon.address;
     _directionsUrlController.text = salon.directionsUrl;
     _phoneController.text = salon.phone.contains('@') ? '' : salon.phone;
-    final ownerContact =
-        AppStateScope.read(context).ownerAccount?.contact ?? '';
-    _emailController.text = salon.email.isNotEmpty
-        ? salon.email
-        : (ownerContact.contains('@') ? ownerContact : '');
     _photoUrls = [...salon.photoUrls];
     _openTimeController.text = formatSalonClockTime(salon.openTime);
     _closeTimeController.text = formatSalonClockTime(salon.closeTime);
+    _closedWeekdays.addAll(salon.closedWeekdays);
     _upiIdController.text = appState.ownerPaymentUpiId;
     _loaded = true;
     if (appState.ownerSalonOrNull != null) {
@@ -99,7 +100,7 @@ class _SalonProfileSetupScreenState extends State<SalonProfileSetupScreen> {
     _addressController.dispose();
     _directionsUrlController.dispose();
     _phoneController.dispose();
-    _emailController.dispose();
+    _barberNameController.dispose();
     _openTimeController.dispose();
     _closeTimeController.dispose();
     _upiIdController.dispose();
@@ -113,28 +114,30 @@ class _SalonProfileSetupScreenState extends State<SalonProfileSetupScreen> {
     final isNewOnboarding = appState.ownerSalonOrNull == null;
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Shop registration'),
-        leading: isNewOnboarding
-            ? IconButton(
-                key: const ValueKey('exit-salon-onboarding-icon'),
-                onPressed: _isSaving ? null : () => _returnToCustomerHome(),
-                icon: const Icon(Icons.home_outlined),
-                tooltip: 'Back to customer home',
-              )
-            : null,
-      ),
+      appBar: widget.embedded
+          ? null
+          : SalonFeAppBar(
+              title: const Text('Shop registration'),
+              leading: isNewOnboarding
+                  ? IconButton(
+                      key: const ValueKey('exit-salon-onboarding-icon'),
+                      onPressed: _isSaving ? null : () => _returnToWelcome(),
+                      icon: const Icon(Icons.home_outlined),
+                      tooltip: 'Sign out and return to welcome',
+                    )
+                  : null,
+            ),
       body: Form(
         key: _formKey,
         child: ListView(
           padding: const EdgeInsets.fromLTRB(18, 10, 18, 28),
           children: [
-            if (isNewOnboarding) ...[
+            if (isNewOnboarding && !widget.embedded) ...[
               OutlinedButton.icon(
                 key: const ValueKey('exit-salon-onboarding'),
-                onPressed: _isSaving ? null : () => _returnToCustomerHome(),
+                onPressed: _isSaving ? null : () => _returnToWelcome(),
                 icon: const Icon(Icons.arrow_back_rounded),
-                label: const Text('Not a salon owner? Back to customer home'),
+                label: const Text('Sign out and return to welcome'),
               ),
               const SizedBox(height: 16),
             ],
@@ -182,8 +185,6 @@ class _SalonProfileSetupScreenState extends State<SalonProfileSetupScreen> {
                     decoration: const InputDecoration(
                       labelText: 'Google Maps or directions link',
                       hintText: 'https://maps.app.goo.gl/…',
-                      helperText:
-                          'Customers will open this link from Directions.',
                       prefixIcon: Icon(Icons.map_outlined),
                     ),
                     validator: _optionalWebLink,
@@ -195,45 +196,9 @@ class _SalonProfileSetupScreenState extends State<SalonProfileSetupScreen> {
                     keyboardType: TextInputType.phone,
                     decoration: const InputDecoration(
                       labelText: 'Owner phone number',
-                      helperText:
-                          'Required for the salon profile, even if you signed in by email.',
                       prefixIcon: Icon(Icons.phone_outlined),
                     ),
                     validator: _phone,
-                  ),
-                  TextButton.icon(
-                    key: const ValueKey('enable-owner-phone-login'),
-                    onPressed:
-                        _isSaving ||
-                            appState.isOwnerPhoneLoginEnabled(
-                              _phoneController.text,
-                            )
-                        ? null
-                        : () => _saveProfile(context),
-                    icon: Icon(
-                      appState.isOwnerPhoneLoginEnabled(_phoneController.text)
-                          ? Icons.verified_outlined
-                          : Icons.phonelink_lock_outlined,
-                    ),
-                    label: Text(
-                      appState.isOwnerPhoneLoginEnabled(_phoneController.text)
-                          ? 'Phone login enabled'
-                          : 'Save and enable phone login',
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  TextFormField(
-                    controller: _emailController,
-                    keyboardType: TextInputType.emailAddress,
-                    autocorrect: false,
-                    textCapitalization: TextCapitalization.none,
-                    decoration: const InputDecoration(
-                      labelText: 'Owner email address',
-                      helperText:
-                          'Required for the salon profile, even if you signed in by phone.',
-                      prefixIcon: Icon(Icons.email_outlined),
-                    ),
-                    validator: _email,
                   ),
                   const SizedBox(height: 12),
                   Row(
@@ -248,7 +213,6 @@ class _SalonProfileSetupScreenState extends State<SalonProfileSetupScreen> {
                           ),
                           decoration: const InputDecoration(
                             labelText: 'Opening',
-                            prefixIcon: Icon(Icons.wb_sunny_outlined),
                             suffixIcon: Icon(Icons.keyboard_arrow_down),
                           ),
                           validator: _time,
@@ -265,7 +229,6 @@ class _SalonProfileSetupScreenState extends State<SalonProfileSetupScreen> {
                           ),
                           decoration: const InputDecoration(
                             labelText: 'Closing',
-                            prefixIcon: Icon(Icons.nights_stay_outlined),
                             suffixIcon: Icon(Icons.keyboard_arrow_down),
                           ),
                           validator: _closingTime,
@@ -273,31 +236,46 @@ class _SalonProfileSetupScreenState extends State<SalonProfileSetupScreen> {
                       ),
                     ],
                   ),
-                  const SizedBox(height: 16),
-                  FilledButton.icon(
-                    onPressed: _isSaving ? null : () => _saveProfile(context),
-                    icon: const Icon(Icons.save_outlined),
-                    label: Text(
-                      _isSaving ? 'Saving...' : 'Save shop registration',
-                    ),
-                  ),
                 ],
               ),
             ),
-            const SizedBox(height: 24),
-            const SectionHeader(title: 'UPI payout details'),
-            const SizedBox(height: 10),
-            _SalonPaymentDetailsCard(
-              upiIdController: _upiIdController,
-              qrCodeUrl: appState.ownerPaymentQrCodeUrl,
-              profileSaved: !isNewOnboarding,
-              isSaving: _isSavingPaymentDetails,
-              isUploadingQr: _isUploadingPaymentQr,
-              upiValidator: _upiId,
-              onSaveUpi: () => _savePaymentDetails(context),
-              onUploadQr: () => _pickAndUploadPaymentQr(context),
-              onRemoveQr: () => _removePaymentQr(context),
+            const SizedBox(height: 18),
+            const SectionHeader(title: 'Shop closed days'),
+            const SizedBox(height: 8),
+            Text(
+              'Choose weekly days off. Instant bookings and scheduled slots are unavailable on these days.',
+              style: Theme.of(context).textTheme.bodySmall,
             ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              children: [
+                for (var day = 1; day <= 7; day++)
+                  FilterChip(
+                    key: ValueKey('shop-closed-day-$day'),
+                    label: Text(
+                      const [
+                        'Mon',
+                        'Tue',
+                        'Wed',
+                        'Thu',
+                        'Fri',
+                        'Sat',
+                        'Sun',
+                      ][day - 1],
+                    ),
+                    selected: _closedWeekdays.contains(day),
+                    onSelected: _isSaving
+                        ? null
+                        : (selected) => setState(() {
+                            selected
+                                ? _closedWeekdays.add(day)
+                                : _closedWeekdays.remove(day);
+                          }),
+                  ),
+              ],
+            ),
+            if (_closedWeekdays.isEmpty) const Text('Open every day'),
             const SizedBox(height: 24),
             SectionHeader(
               title: 'Salon photos',
@@ -314,17 +292,86 @@ class _SalonProfileSetupScreenState extends State<SalonProfileSetupScreen> {
               onRemovePhoto: (url) => _removeSalonPhoto(context, url),
             ),
             const SizedBox(height: 24),
+            const SectionHeader(title: 'Barbers'),
+            const SizedBox(height: 10),
+            GlassCard(
+              child: Column(
+                children: [
+                  if (isNewOnboarding)
+                    TextField(
+                      key: const ValueKey('shop-barber-name'),
+                      controller: _barberNameController,
+                      textCapitalization: TextCapitalization.words,
+                      decoration: const InputDecoration(
+                        labelText: 'Barber name',
+                        prefixIcon: Icon(Icons.person_outline),
+                      ),
+                    ),
+                  const SizedBox(height: 10),
+                  FilledButton.icon(
+                    key: const ValueKey('shop-add-barber'),
+                    onPressed: isNewOnboarding
+                        ? _addDraftBarber
+                        : () => showModalBottomSheet<void>(
+                            context: context,
+                            isScrollControlled: true,
+                            useSafeArea: true,
+                            builder: (_) => const SalonBarberForm(),
+                          ),
+                    icon: const Icon(Icons.person_add_alt_1),
+                    label: const Text('Add barber'),
+                  ),
+                  for (final barber in _pendingBarbers)
+                    ListTile(
+                      title: Text(barber.name),
+                      trailing: IconButton(
+                        tooltip: 'Remove barber',
+                        icon: const Icon(Icons.close),
+                        onPressed: () =>
+                            setState(() => _pendingBarbers.remove(barber)),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            for (final barber in appState.barbersForSalon(salon.id)) ...[
+              const SizedBox(height: 10),
+              SalonBarberCard(barber: barber),
+            ],
+            const SizedBox(height: 16),
+            FilledButton.icon(
+              onPressed: _isSaving || _isUploadingPhotos
+                  ? null
+                  : () => _saveProfile(context),
+              icon: const Icon(Icons.save_outlined),
+              label: Text(_isSaving ? 'Saving...' : 'Save shop registration'),
+            ),
+            const SizedBox(height: 24),
+            const SectionHeader(title: 'UPI payout details'),
+            const SizedBox(height: 10),
+            _SalonPaymentDetailsCard(
+              upiIdController: _upiIdController,
+              qrCodeUrl: appState.ownerPaymentQrCodeUrl,
+              profileSaved: !isNewOnboarding,
+              isSaving: _isSavingPaymentDetails,
+              isUploadingQr: _isUploadingPaymentQr,
+              upiValidator: _upiId,
+              onSaveUpi: () => _savePaymentDetails(context),
+              onUploadQr: () => _pickAndUploadPaymentQr(context),
+              onRemoveQr: () => _removePaymentQr(context),
+            ),
+            const SizedBox(height: 24),
             SectionHeader(title: 'Service menu'),
             const SizedBox(height: 10),
             GlassCard(
-              color: AppColors.champagne.withAlpha(70),
+              color: AppColors.primarySoft.withAlpha(70),
               child: Row(
                 children: [
                   const ServiceImageIcon(category: 'Haircut', size: 48),
                   const SizedBox(width: 12),
                   Expanded(
                     child: Text(
-                      'Every salon uses the same 30-service Pritze menu. You can set each price, duration and availability.',
+                      'Every salon uses the same 30-service SalonFe menu. You can set each price, duration and availability.',
                       style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                         color: AppColors.ink,
                         fontWeight: FontWeight.w600,
@@ -359,15 +406,12 @@ class _SalonProfileSetupScreenState extends State<SalonProfileSetupScreen> {
     );
   }
 
-  Future<void> _returnToCustomerHome() async {
+  Future<void> _returnToWelcome() async {
     await AppStateScope.read(context).signOutActiveUser();
     if (!mounted) {
       return;
     }
-    Navigator.of(context).pushAndRemoveUntil(
-      MaterialPageRoute(builder: (_) => const CustomerHomeScreen()),
-      (_) => false,
-    );
+    openAccountHome(context);
   }
 
   Future<void> _addMasterServices(BuildContext context) async {
@@ -384,7 +428,7 @@ class _SalonProfileSetupScreenState extends State<SalonProfileSetupScreen> {
           content: Text(
             added == 0
                 ? 'Master service menu is already added'
-                : 'Added $added services from the Pritze master menu',
+                : 'Added $added services from the SalonFe master menu',
           ),
         ),
       );
@@ -481,17 +525,6 @@ class _SalonProfileSetupScreenState extends State<SalonProfileSetupScreen> {
     return null;
   }
 
-  String? _email(String? value) {
-    final requiredError = _required(value);
-    if (requiredError != null) {
-      return requiredError;
-    }
-    if (!RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(value!.trim())) {
-      return 'Enter a valid email address';
-    }
-    return null;
-  }
-
   String? _time(String? value) {
     final requiredError = _required(value);
     if (requiredError != null) {
@@ -543,9 +576,7 @@ class _SalonProfileSetupScreenState extends State<SalonProfileSetupScreen> {
       // with a 24-hour phone picked from a 24-hour dial while every label in
       // the app reads 12-hour.
       builder: (context, child) => MediaQuery(
-        data: MediaQuery.of(
-          context,
-        ).copyWith(alwaysUse24HourFormat: false),
+        data: MediaQuery.of(context).copyWith(alwaysUse24HourFormat: false),
         child: child ?? const SizedBox.shrink(),
       ),
     );
@@ -598,27 +629,29 @@ class _SalonProfileSetupScreenState extends State<SalonProfileSetupScreen> {
     if (!_formKey.currentState!.validate()) {
       return;
     }
+    if (_barberNameController.text.trim().isNotEmpty) _addDraftBarber();
     setState(() => _isSaving = true);
     try {
-      await AppStateScope.read(context).updateOwnerSalon(
+      final appState = AppStateScope.read(context);
+      await appState.updateOwnerSalon(
         name: _salonNameController.text,
         ownerName: _ownerNameController.text,
         address: _addressController.text,
         directionsUrl: _directionsUrlController.text,
         phone: _phoneController.text,
-        email: _emailController.text,
+        email: appState.ownerSalon.email,
         logoUrl: '',
         photoUrls: _photoUrls,
         openTime: _openTimeController.text,
         closeTime: _closeTimeController.text,
+        closedWeekdays: _closedWeekdays.toList()..sort(),
+        strictShop: true,
+        initialBarbers: List.of(_pendingBarbers),
       );
+      _pendingBarbers.clear();
       if (!context.mounted) {
         return;
       }
-      // Phone login is set up from the account menu, not here. Interrupting
-      // a listing save with an OTP prompt made it feel like part of
-      // onboarding, so owners dismissed it and never found it again.
-      if (!context.mounted) return;
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text('Listing saved')));
@@ -639,29 +672,10 @@ class _SalonProfileSetupScreenState extends State<SalonProfileSetupScreen> {
   }
 
   Future<void> _pickAndUploadSalonPhotos(BuildContext context) async {
-    if (!_formKey.currentState!.validate()) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Save valid shop details before uploading photos.'),
-        ),
-      );
-      return;
-    }
+    if (_photoUrls.length >= 8) return;
     setState(() => _isUploadingPhotos = true);
     try {
       final appState = AppStateScope.read(context);
-      await appState.updateOwnerSalon(
-        name: _salonNameController.text,
-        ownerName: _ownerNameController.text,
-        address: _addressController.text,
-        directionsUrl: _directionsUrlController.text,
-        phone: _phoneController.text,
-        email: _emailController.text,
-        logoUrl: '',
-        photoUrls: _photoUrls,
-        openTime: _openTimeController.text,
-        closeTime: _closeTimeController.text,
-      );
       final photos = await ImagePicker().pickMultiImage(
         imageQuality: 82,
         maxWidth: 1600,
@@ -673,19 +687,18 @@ class _SalonProfileSetupScreenState extends State<SalonProfileSetupScreen> {
       final uploadedUrls = <String>[];
       for (final photo in photos.take(8 - _photoUrls.length)) {
         final bytes = await photo.readAsBytes();
-        final url = await appState.uploadOwnerSalonPhoto(
+        final url = await appState.stageOwnerSalonPhoto(
           bytes: bytes,
           fileName: photo.name,
           contentType: photo.mimeType,
         );
         uploadedUrls.add(url);
+        if (mounted) setState(() => _photoUrls.add(url));
       }
       if (!context.mounted) {
         return;
       }
-      setState(() {
-        _photoUrls = [...appState.ownerSalon.photoUrls];
-      });
+
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
@@ -811,32 +824,18 @@ class _SalonProfileSetupScreenState extends State<SalonProfileSetupScreen> {
   }
 
   Future<void> _removeSalonPhoto(BuildContext context, String photoUrl) async {
-    setState(() => _isUploadingPhotos = true);
-    try {
-      await AppStateScope.read(context).removeOwnerSalonPhoto(photoUrl);
-      if (!context.mounted) {
-        return;
-      }
-      setState(() {
-        _photoUrls = [...AppStateScope.read(context).ownerSalon.photoUrls];
-      });
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Salon photo removed')));
-    } catch (error) {
-      if (!context.mounted) {
-        return;
-      }
-      await showAppErrorDialog(
-        context,
-        friendlyOnboardingError(error),
-        onRetry: () => _removeSalonPhoto(context, photoUrl),
-      );
-    } finally {
-      if (mounted) {
-        setState(() => _isUploadingPhotos = false);
-      }
-    }
+    // Stage removal until the complete Shop form is validated and saved.
+    setState(() => _photoUrls.remove(photoUrl));
+  }
+
+  void _addDraftBarber() {
+    final name = _barberNameController.text.trim();
+    if (name.isEmpty) return;
+    final barber = AppStateScope.read(context).createOwnerBarberDraft(name);
+    setState(() {
+      _pendingBarbers.add(barber);
+      _barberNameController.clear();
+    });
   }
 
   String? _optionalWebLink(String? value) {
@@ -1042,7 +1041,7 @@ class _SalonPaymentDetailsCard extends StatelessWidget {
             Text(
               'Save the shop registration first to add private payment details.',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: AppColors.coral,
+                color: AppColors.danger,
                 fontWeight: FontWeight.w600,
               ),
             ),
@@ -1236,7 +1235,7 @@ class _SalonPhotoTile extends StatelessWidget {
             icon: const Icon(Icons.close),
             style: IconButton.styleFrom(
               backgroundColor: Colors.white.withAlpha(238),
-              foregroundColor: AppColors.coral,
+              foregroundColor: AppColors.danger,
               minimumSize: const Size(34, 34),
               tapTargetSize: MaterialTapTargetSize.shrinkWrap,
             ),
@@ -1330,7 +1329,7 @@ class _ServiceCardState extends State<_ServiceCard> {
                           : 'Instant off',
                       color:
                           service.isAvailable && service.instantBookingEnabled
-                          ? AppColors.coral
+                          ? AppColors.danger
                           : AppColors.muted,
                     ),
                   ],
@@ -1580,7 +1579,7 @@ class _ServiceCardState extends State<_ServiceCard> {
                       readOnly: true,
                       decoration: const InputDecoration(
                         labelText: 'Service name',
-                        helperText: 'Names follow the standard Pritze menu.',
+                        helperText: 'Names follow the standard SalonFe menu.',
                       ),
                     ),
                     const SizedBox(height: 10),

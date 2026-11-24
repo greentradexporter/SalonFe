@@ -6,6 +6,7 @@ import '../../services/referral_link_service.dart';
 import '../../state/app_state_scope.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/app_ui.dart';
+import '../../widgets/brand_header.dart';
 import '../../widgets/app_error_dialog.dart';
 
 class ReferralOnboardingScreen extends StatefulWidget {
@@ -66,10 +67,16 @@ class _ReferralOnboardingScreenState extends State<ReferralOnboardingScreen> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const SoftIconBox(
-                icon: Icons.redeem_rounded,
-                color: AppColors.primary,
-                size: 56,
+              const Row(
+                children: [
+                  SoftIconBox(
+                    icon: Icons.redeem_rounded,
+                    color: AppColors.primary,
+                    size: 56,
+                  ),
+                  Spacer(),
+                  BrandWordmark(),
+                ],
               ),
               const SizedBox(height: 14),
               Text(

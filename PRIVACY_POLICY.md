@@ -1,98 +1,39 @@
-# Privacy Policy for Pritze
+# Privacy Policy — SalonFe
 
-Effective date: May 28, 2026
+Last updated: November 24, 2026
 
-Pritze ("we", "our", or "us") provides a salon discovery, booking, and partner management app for customers, salon owners, and barbers. This Privacy Policy explains what information we collect, how we use it, and the choices available to users.
+## About this policy
 
-## Information We Collect
+SalonFe helps customers discover salons and book services, and helps salon owners and barbers manage appointments. SalonFe is operated by Mayur Muley. Contact greentradexporter@gmail.com or +91 89996 08278 for support, privacy requests or concerns.
 
-We collect information that is needed to operate the app:
+## Information we use
 
-- Account information: name, phone number, email address, and sign-in provider.
-- Authentication information: phone OTP verification status or Google sign-in account information, as provided through Firebase Authentication.
-- Booking information: selected salon, selected service, selected barber, appointment time, customer name, customer phone number, booking status, and booking creation time.
-- Salon information: salon name, owner name, address, business phone number, opening and closing hours, service menu, prices, and staff details.
-- Barber information: barber name, phone number, speciality, years of experience, resume summary, assigned salon, services offered, and active/inactive status.
-- Join request information: barber join requests sent to salon owners, including request status and requested services.
-- Technical information: app, device, and authentication metadata that Firebase or Google services may process to provide secure sign-in, database access, and app functionality.
+We process account information such as your name, phone number, email, account role and sign-in provider; booking times, services, prices and status; optional profile details, preferences and photos; salon and staff details, service availability, weekly closed days and business photos; reviews, referrals, promotional credits, deposits, earnings, discounts and settlement records. Salon payout information may include UPI identifiers and QR images. Authentication, device notification tokens, technical diagnostics and security information support sign-in and reliable operation.
 
-## How We Use Information
+## Optional location for discovery
 
-We use the information we collect to:
+We ask permission before obtaining a foreground location for salon discovery. You may decline and continue browsing or booking. When signed in as a customer, we round coordinates to approximately 100-metre precision and save the latest discovery location privately in your account. This is a one-time foreground reading, not continuous background tracking. The latest saved discovery location remains until replaced, cleared through Profile → Discovery location, or removed following an applicable deletion request. Your device can provide approximate location instead of precise location. Guest discovery coordinates stay in app memory and may be saved to your account if you sign in during that session with location consent enabled.
 
-- Create and manage user accounts.
-- Authenticate users through phone OTP or Google sign-in.
-- Show salons, services, barbers, and appointment slots.
-- Create, manage, and update bookings.
-- Help salon owners manage salon profiles, services, staff, and booking status.
-- Help barbers request to join salons and manage assigned appointments.
-- Protect user accounts and app data from unauthorized access.
-- Maintain, troubleshoot, and improve the app.
+## Arrival sharing is separate
 
-## Sharing of Information
+If you choose arrival sharing for a booking, location or arrival progress is shared with the relevant salon to coordinate your visit. Discovery permission does not automatically start arrival sharing. You can stop arrival sharing using its booking controls.
 
-We do not sell personal information.
+## How information is used and shared
 
-Information may be visible to other users only where needed for the app to work. For example:
+We use information to provide discovery, authentication, booking, business management, rewards, notifications, payment coordination, support and abuse prevention. Booking and arrival details needed to provide a service are shared with the relevant salon and assigned staff. Approved public salon details and photos may appear in the app and on individual shareable salon pages. Discovery coordinates are not published in those pages or automatically shared with salons. We do not sell personal information.
 
-- A salon owner can see booking details for bookings made at their salon.
-- A barber can see assigned booking details.
-- Customers can see salon, service, and barber information.
-- Salon owners can review barber join requests.
+## Providers and storage
 
-We use third-party service providers to operate the app, including Google Firebase services. These providers process information only as needed to provide app infrastructure, authentication, database storage, security, and related services.
+Google and Firebase provide authentication, cloud storage, database, server functions, notifications and security infrastructure. Data may be processed outside your country by these providers. Access rules restrict private data according to identity and role. No system can guarantee complete security.
 
-## Third-Party Services
+## Retention and your choices
 
-Pritze uses Google Firebase and Google Sign-In services, including:
+We retain information needed to operate services, maintain transaction and business records, resolve disputes, prevent abuse and meet applicable obligations. You may browse salons without signing in; booking requires an account. You may decline optional permissions, change them in device settings and clear saved discovery location in Profile. Contact support to request access, correction or deletion of account information. Identity checks may be needed. Some transaction, fraud prevention or legally required records may need to be retained.
 
-- Firebase Authentication
-- Cloud Firestore
-- Google Sign-In
+## Age and updates
 
-These services may collect and process information according to Google's policies and Firebase terms. You can learn more here:
+SalonFe is not directed to children under 13. We do not knowingly collect information from children under 13. A parent or guardian should contact us if a child has provided personal information. We may update this policy; the date shown identifies the latest version.
 
-- Firebase Privacy and Security: https://firebase.google.com/support/privacy
-- Google Privacy Policy: https://policies.google.com/privacy
+## Contact
 
-## Data Storage and Security
-
-App data is stored using Google Firebase/Cloud Firestore. We use Firebase Authentication and Firestore security rules to restrict access to data based on user identity and role.
-
-No method of electronic storage or transmission is completely secure, but we take reasonable steps to protect user information from unauthorized access, alteration, disclosure, or destruction.
-
-## Data Retention
-
-We keep user and booking information for as long as needed to provide the app, maintain business records, resolve disputes, prevent abuse, and comply with legal obligations.
-
-Users may request deletion of their account or related personal information by contacting us. Some information may be retained if required for legal, security, fraud prevention, or legitimate business purposes.
-
-## User Choices and Rights
-
-Users may:
-
-- Choose whether to sign in with phone number or Google account, where available.
-- Request access, correction, or deletion of personal information.
-- Stop using the app at any time.
-- Contact us with privacy questions or requests.
-
-If you use Google sign-in, you may also manage connected apps from your Google Account settings.
-
-## Children's Privacy
-
-Pritze is intended for general salon booking and partner management use. It is not directed to children under 13 years of age. We do not knowingly collect personal information from children under 13. If we learn that a child under 13 has provided personal information, we will take reasonable steps to delete it.
-
-## International Users
-
-Your information may be processed and stored on servers operated by Google Firebase and related service providers, which may be located outside your country or region.
-
-## Changes to This Policy
-
-We may update this Privacy Policy from time to time. When we make changes, we will update the effective date above. Continued use of the app after changes means you accept the updated policy.
-
-## Contact Us
-
-If you have questions, requests, or concerns about this Privacy Policy or your personal information, contact us at:
-
-Email: greentradexporter@gmail.com
-
+SalonFe is operated by Mayur Muley. Contact greentradexporter@gmail.com or +91 89996 08278 for support, privacy requests or concerns.

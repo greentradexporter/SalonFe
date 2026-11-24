@@ -43,6 +43,8 @@ service cloud.firestore {
         request.resource.data.closeTime is string &&
         request.resource.data.closeTime.size() > 0 &&
         request.resource.data.isOpen is bool &&
+        request.resource.data.get('closedWeekdays', []) is list &&
+        request.resource.data.get('closedWeekdays', []).toSet().hasOnly([1, 2, 3, 4, 5, 6, 7]) &&
         hasCanonicalSalonServiceMenu() &&
         hasRequiredSalonContact();
     }
@@ -108,6 +110,7 @@ service cloud.firestore {
     function updatesOnlyOwnProfileFields() {
       return request.resource.data.diff(resource.data).affectedKeys().hasOnly([
         'name',
+        'customerLocation',
         'contact',
         'email',
         'phone',
@@ -133,11 +136,24 @@ service cloud.firestore {
       ]);
     }
 
+    function validCustomerLocation() {
+      let location = request.resource.data.customerLocation;
+      return location is map &&
+        location.keys().hasOnly(['latitude', 'longitude', 'accuracyMeters', 'purpose', 'capturedAt']) &&
+        location.latitude is number && location.latitude >= -90 && location.latitude <= 90 &&
+        location.longitude is number && location.longitude >= -180 && location.longitude <= 180 &&
+        location.accuracyMeters is number && location.accuracyMeters >= 100 && location.accuracyMeters <= 100000 &&
+        location.purpose == 'salon_discovery' && location.capturedAt == request.time;
+    }
+
     match /users/{userId} {
       allow read: if userOwnsProfile(userId);
       allow create: if false;
       allow update: if userOwnsProfile(userId) &&
-        updatesOnlyOwnProfileFields();
+        updatesOnlyOwnProfileFields() &&
+        (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['customerLocation']) ||
+          !('customerLocation' in request.resource.data) ||
+          (signedInAs('customer') && validCustomerLocation()));
     }
 
     match /loginIdentifiers/{identifierId} {

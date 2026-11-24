@@ -18,14 +18,14 @@ async function render() {
   );
 }
 
-test("server-renders the private Pritze team access page", async () => {
+test("server-renders the private SalonFe team access page", async () => {
   const response = await render();
   assert.equal(response.status, 200);
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
 
   const html = await response.text();
-  assert.match(html, /<title>Pritze Control Center<\/title>/i);
-  assert.match(html, /One trusted place to run Pritze/);
+  assert.match(html, /<title>SalonFe Control Center<\/title>/i);
+  assert.match(html, /One trusted place to run SalonFe/);
   assert.match(html, /AUTHORIZED TEAM ACCESS/);
   assert.match(html, /User ID/);
   assert.match(html, /Password/);
@@ -150,13 +150,11 @@ test("customer and salon records have audited full-profile controls", () => {
   assert.match(source, /recordSalonSettlementPaymentAsAdmin/);
   assert.match(source, /Record external payment/);
   assert.match(source, /Settle full amount/);
-  assert.match(source, /Record Pritze deposit/);
-  assert.match(source, /program\.salonDeposit/);
-  assert.match(source, /Salon first-visit earning \(% of bill\)/);
+  assert.match(source, /Add promotional credit/);
   assert.match(source, /Payment method/);
   assert.match(source, /Bank transfer/);
   assert.match(source, /cash receipt or ledger reference/);
-  assert.match(source, /Record a Pritze deposit when you pay a salon in advance/);
+  assert.match(source, /Add promotional credit when needed/);
 });
 
 test("the authenticated Control Center includes a practical operating guide", () => {
@@ -187,7 +185,7 @@ test("the authenticated Control Center includes a practical operating guide", ()
   assert.match(source, /verbally shared and work only when typed/);
   assert.match(source, /Visible checkout offers appear as a small tappable row/);
   assert.match(source, /booking 1 discount only, booking 2 discount \+ Proin/);
-  assert.match(source, /Pritze owes salon/);
+  assert.match(source, /SalonFe owes salon/);
   assert.match(source, /view === "guide" && <GuideView/);
   assert.match(source, /className="sidebar-guide"/);
   assert.match(source, /navItems\.filter\(\(item\) => item\.id !== "guide"\)/);

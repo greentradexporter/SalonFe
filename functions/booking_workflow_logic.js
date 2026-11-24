@@ -61,10 +61,11 @@ function shouldAlertOwnerForBooking(booking, nowMillis = Date.now()) {
     Number.isFinite(deadline) && nowMillis < deadline;
 }
 
-function isInstantEnabledForSalon(salon) {
+function isInstantEnabledForSalon(salon, nowMillis = Date.now()) {
   // The owner switch remains off until the owner explicitly enables it.
   // Legacy pause dates must never override an explicit false value.
-  return Boolean(salon) && salon.instantBookingsEnabled !== false;
+  return Boolean(salon) && salon.instantBookingsEnabled !== false &&
+    !isSalonClosedOn(salon.closedWeekdays, nowMillis);
 }
 
 function isBlockingBooking(booking, nowMillis = Date.now()) {
@@ -235,13 +236,30 @@ function zonedDateParts(date, timeZone = "Asia/Kolkata") {
   };
 }
 
+function isSalonClosedOn(closedWeekdays, millis, timeZone = "Asia/Kolkata") {
+  const {dateKey} = zonedDateParts(new Date(millis), timeZone);
+  const weekday = new Date(`${dateKey}T12:00:00Z`).getUTCDay() || 7;
+  return Array.isArray(closedWeekdays) && closedWeekdays.includes(weekday);
+}
+
+function normalizeClosedWeekdays(value) {
+  if (!Array.isArray(value) || value.some((day) =>
+    !Number.isInteger(day) || day < 1 || day > 7)) {
+    throw new Error("Choose valid shop closed days (Monday to Sunday).");
+  }
+  return [...new Set(value)].sort((a, b) => a - b);
+}
+
 function isWithinSalonHours({
   startMillis,
   durationMinutes,
   openTime,
   closeTime,
+  closedWeekdays = [],
   timeZone = "Asia/Kolkata",
 }) {
+  if (!Number.isFinite(startMillis) || !Number.isFinite(durationMinutes) ||
+      durationMinutes <= 0 || isSalonClosedOn(closedWeekdays, startMillis, timeZone)) return false;
   const opening = parseClockMinutes(openTime);
   const closing = parseClockMinutes(closeTime);
   if (opening === null || closing === null || closing <= opening) {
@@ -277,6 +295,8 @@ module.exports = {
   isBlockingBooking,
   isInstantEnabledForSalon,
   isWithinSalonHours,
+  isSalonClosedOn,
+  normalizeClosedWeekdays,
   parseClockMinutes,
   serviceAutoCompleteAtMillis,
   shouldAutoCompleteService,

@@ -18,6 +18,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/app_models.dart';
 import '../models/service_catalog.dart';
 import '../services/firebase_bootstrap.dart';
+import '../services/referral_skip_store.dart';
 import '../services/owner_alert_readiness.dart';
 import '../services/owner_booking_alert_state.dart';
 import '../services/push_deregistration.dart';
@@ -105,7 +106,7 @@ const _defaultSupportPhone = '+91 73101 91586';
 const _pushNotificationChannel = AndroidNotificationChannel(
   'pritze_booking_updates',
   'Booking updates',
-  description: 'Booking, request, and account updates from Pritze.',
+  description: 'Booking, request, and account updates from SalonFe.',
   importance: Importance.high,
 );
 // Android channels are immutable once created, so changing how the alert
@@ -530,7 +531,7 @@ Future<void> _initializeBackgroundNotifications(
 ) async {
   await notifications.initialize(
     settings: InitializationSettings(
-      android: AndroidInitializationSettings('@mipmap/ic_launcher'),
+      android: AndroidInitializationSettings('ic_stat_salonfe'),
       iOS: DarwinInitializationSettings(
         requestAlertPermission: false,
         requestBadgePermission: false,
@@ -591,7 +592,7 @@ Future<void> _postOwnerBookingAlert({
       channelDescription: _ownerBookingRequestChannel.description,
       importance: Importance.max,
       priority: Priority.max,
-      icon: '@mipmap/ic_launcher',
+      icon: 'ic_stat_salonfe',
       category: AndroidNotificationCategory.alarm,
       ongoing: true,
       autoCancel: false,
@@ -887,6 +888,43 @@ class AppState extends ChangeNotifier {
   bool _isSaving = false;
   bool _isInstantBookingSaving = false;
   bool _referralOnboardingRequired = false;
+  double? customerDiscoveryLatitude;
+  double? customerDiscoveryLongitude;
+  double? customerDiscoveryAccuracy;
+  Future<void> setCustomerDiscoveryLocation({
+    required double latitude,
+    required double longitude,
+    required double accuracyMeters,
+  }) async {
+    if (!latitude.isFinite ||
+        !longitude.isFinite ||
+        latitude.abs() > 90 ||
+        longitude.abs() > 180) {
+      return;
+    }
+    customerDiscoveryLatitude = (latitude * 1000).round() / 1000;
+    customerDiscoveryLongitude = (longitude * 1000).round() / 1000;
+    customerDiscoveryAccuracy = accuracyMeters.isFinite
+        ? accuracyMeters.clamp(100, 100000).toDouble()
+        : 100;
+    notifyListeners();
+  }
+
+  Future<void> clearCustomerDiscoveryLocation() async {
+    customerDiscoveryLatitude = null;
+    customerDiscoveryLongitude = null;
+    customerDiscoveryAccuracy = null;
+    notifyListeners();
+  }
+
+  bool _guestBrowsing = false;
+  bool get isGuestBrowsing => _guestBrowsing && activeRole == null;
+  void browseAsGuest() {
+    if (hasActiveOwnerSession || hasActiveBarberSession) return;
+    _guestBrowsing = true;
+    notifyListeners();
+  }
+
   int _discountOfferRefreshVersion = 0;
   int _referralCodeCounter = 1;
   int _mockDiscountPercent = 0;
@@ -1183,7 +1221,7 @@ class AppState extends ChangeNotifier {
     return _mockCampaignQuote(
       quotePrefix: 'mock-quote',
       campaignId: 'mock-campaign',
-      campaignName: 'Pritze offer',
+      campaignName: 'SalonFe offer',
       salonId: salonId,
       serviceIds: ids,
       discountPercent: _mockDiscountPercent.toDouble(),
@@ -1286,7 +1324,7 @@ class AppState extends ChangeNotifier {
       final quote = _mockCampaignQuote(
         quotePrefix: 'mock-campaign-preview',
         campaignId: 'mock-campaign',
-        campaignName: 'Pritze offer',
+        campaignName: 'SalonFe offer',
         salonId: salonId,
         serviceIds: ids,
         discountPercent: _mockDiscountPercent.toDouble(),
@@ -1350,7 +1388,7 @@ class AppState extends ChangeNotifier {
       final quote = _mockCampaignQuote(
         quotePrefix: 'mock-selected-quote',
         campaignId: 'mock-campaign',
-        campaignName: 'Pritze offer',
+        campaignName: 'SalonFe offer',
         salonId: salonId,
         serviceIds: ids,
         discountPercent: _mockDiscountPercent.toDouble(),
@@ -1569,7 +1607,7 @@ class AppState extends ChangeNotifier {
   @visibleForTesting
   void configureMockVisibleCheckoutDiscountOffer({
     required String campaignId,
-    String campaignName = 'Pritze checkout offer',
+    String campaignName = 'SalonFe checkout offer',
     String salonId = '',
     Iterable<String> serviceIds = const [],
     String discountType = 'percent',
@@ -1590,7 +1628,7 @@ class AppState extends ChangeNotifier {
       _MockVisibleCheckoutDiscountCampaign(
         campaignId: normalizedCampaignId,
         campaignName: campaignName.trim().isEmpty
-            ? 'Pritze checkout offer'
+            ? 'SalonFe checkout offer'
             : campaignName.trim(),
         salonId: salonId.trim(),
         serviceIds: _normalizedDiscountServiceIds(serviceIds).toSet(),
@@ -2116,7 +2154,7 @@ class AppState extends ChangeNotifier {
   }
 
   bool isSalonCurrentlyOpenByClock(Salon salon, {DateTime? now}) {
-    if (!salon.isOpen) {
+    if (!salon.isOpen || salon.isClosedOn(now ?? DateTime.now())) {
       return false;
     }
     final openMinutes = _parseClockMinutes(salon.openTime);
@@ -2140,7 +2178,8 @@ class AppState extends ChangeNotifier {
   }
 
   bool isInstantBookingEnabledForSalon(Salon salon, {DateTime? now}) {
-    return salon.instantBookingsEnabled;
+    return salon.instantBookingsEnabled &&
+        !salon.isClosedOn(now ?? DateTime.now());
   }
 
   bool isInstantBookingAvailable(
@@ -2465,7 +2504,8 @@ class AppState extends ChangeNotifier {
     ).where((barber) => barberId == null || barber.id == barberId).toList();
     final now = DateTime.now();
     _expireSlotCache(now);
-    final cacheKey = '$salonId|$serviceId|${barberId ?? '*'}';
+    final cacheKey =
+        '$salonId|$serviceId|${barberId ?? '*'}|${salon.openTime}|${salon.closeTime}|${salon.closedWeekdays.join(',')}';
     final cached = _slotCache[cacheKey];
     if (cached != null) {
       return cached;
@@ -2487,6 +2527,7 @@ class AppState extends ChangeNotifier {
       dayOffset++
     ) {
       final day = DateTime(now.year, now.month, now.day + dayOffset);
+      if (salon.isClosedOn(day)) continue;
       for (
         // Start on the first half hour at or after opening, so a salon that
         // opens at 9:15 still offers 9:30, 10:00, 10:30 rather than 9:15.
@@ -2648,6 +2689,10 @@ class AppState extends ChangeNotifier {
     await _persistOwnerAlertsEnabled(false);
     _pendingMockCustomerPhone = null;
     _pendingMockGoogleCustomer = null;
+    _guestBrowsing = false;
+    customerDiscoveryLatitude = null;
+    customerDiscoveryLongitude = null;
+    customerDiscoveryAccuracy = null;
     _activeRole = null;
     _customerAccount = null;
     _ownerAccount = null;
@@ -3634,7 +3679,13 @@ class AppState extends ChangeNotifier {
     List<String>? photoUrls,
     required String openTime,
     required String closeTime,
+    List<int>? closedWeekdays,
+    bool strictShop = false,
+    List<Barber> initialBarbers = const [],
   }) async {
+    if (strictShop) {
+      _validateOwnerShop(photoUrls ?? ownerSalon.photoUrls, initialBarbers);
+    }
     final ownerAccount = _ownerAccount;
     if (_activeRole != UserRole.owner || ownerAccount == null) {
       throw StateError('Log in as a salon owner before saving a salon.');
@@ -3648,7 +3699,8 @@ class AppState extends ChangeNotifier {
         !RegExp(r'^\+[1-9]\d{7,14}$').hasMatch(normalizedPhone)) {
       throw FormatException('Enter a valid salon phone number.');
     }
-    if (!_isValidEmail(normalizedEmail)) {
+    if (!(strictShop && normalizedEmail.isEmpty) &&
+        !_isValidEmail(normalizedEmail)) {
       throw FormatException('Enter a valid salon email address.');
     }
     if (name.trim().isEmpty ||
@@ -3684,13 +3736,83 @@ class AppState extends ChangeNotifier {
           .toList(),
       openTime: formatSalonClockTime(openTime),
       closeTime: formatSalonClockTime(closeTime),
+      closedWeekdays: closedWeekdays,
     );
     _replaceSalon(salon);
     if (wasDraft) {
       _ownerDraftServices.clear();
     }
     _ownerProfileCompleted = true;
+    for (final barber in initialBarbers) {
+      if (!_barbers.any((existing) => existing.id == barber.id)) {
+        _barbers.add(barber);
+      }
+    }
     notifyListeners();
+  }
+
+  void _validateOwnerShop(List<String> photos, List<Barber> initialBarbers) {
+    if (photos.where((url) => url.trim().isNotEmpty).isEmpty) {
+      throw StateError('Add at least one salon photo before saving.');
+    }
+    if (![...barbersForSalon(ownerSalonId), ...initialBarbers].any(
+      (barber) =>
+          barber.salonId == ownerSalonId &&
+          barber.isActive &&
+          barber.name.trim().isNotEmpty,
+    )) {
+      throw StateError('Add at least one named barber before saving.');
+    }
+    if (initialBarbers.any(
+      (barber) => barber.salonId != ownerSalonId || barber.name.trim().isEmpty,
+    )) {
+      throw StateError('Enter a name for each barber in this shop.');
+    }
+  }
+
+  Barber createOwnerBarberDraft(String name) {
+    if (name.trim().isEmpty) throw ArgumentError('Enter the barber’s name.');
+    return _newOwnerBarber(
+      name: name,
+      phone: '',
+      speciality: 'Grooming expert',
+      experienceYears: 0,
+      resumeSummary: '',
+      serviceIds: [],
+    );
+  }
+
+  Future<SalonBalanceSummary> loadSalonBalance(String salonId) async {
+    if (!hasActiveOwnerSession || salonId != ownerSalonId) {
+      throw StateError('Only the salon owner can view its balance.');
+    }
+    final completed = bookingsForSalon(
+      salonId,
+    ).where((booking) => booking.status == BookingStatus.completed);
+    return SalonBalanceSummary(
+      deposit: 0,
+      discount: completed.fold(
+        0,
+        (total, booking) => total + booking.discountAmount,
+      ),
+      earning: completed.fold(
+        0,
+        (total, booking) =>
+            total +
+            (booking.pritzePayoutAmount - booking.discountAmount).clamp(
+              0,
+              1 << 40,
+            ),
+      ),
+    );
+  }
+
+  Future<String> stageOwnerSalonPhoto({
+    required Uint8List bytes,
+    required String fileName,
+    String? contentType,
+  }) {
+    throw UnsupportedError('Photo upload needs Firebase Storage.');
   }
 
   Future<void> refreshOwnerPaymentDetails() async {
@@ -4291,6 +4413,7 @@ class AppState extends ChangeNotifier {
   }
 
   void _activateRole(UserRole role, UserAccount account) {
+    _guestBrowsing = false;
     _activeRole = role;
     _customerAccount = role == UserRole.customer ? account : null;
     _ownerAccount = role == UserRole.owner ? account : null;
@@ -4829,6 +4952,61 @@ class FirebaseAppState extends AppState with WidgetsBindingObserver {
   int _accountRestoreGeneration = 0;
   String? _startupRestoreUid;
   DateTime? _lastCallableCredentialRefreshAt;
+  final Set<String> _locallySkippedReferralUids = {};
+  Timer? _referralSkipRetryTimer;
+  String? _referralSkipSyncUid;
+  int _referralSkipRetryAttempt = 0;
+
+  Future<bool> _restoreReferralSkip(String uid) async {
+    final skipped =
+        await ReferralSkipStore.wasSkipped(uid) ||
+        await ReferralSkipStore.needsSync(uid);
+    if (skipped) _locallySkippedReferralUids.add(uid);
+    return skipped;
+  }
+
+  Future<void> _syncPendingReferralSkip() async {
+    final uid = auth.currentUser?.uid;
+    if (_disposed ||
+        uid == null ||
+        _referralSkipSyncUid != null ||
+        !_locallySkippedReferralUids.contains(uid)) {
+      return;
+    }
+    _referralSkipSyncUid = uid;
+    try {
+      if (!await ReferralSkipStore.needsSync(uid) ||
+          auth.currentUser?.uid != uid) {
+        return;
+      }
+      await _callProtectedFunction(() {
+        if (auth.currentUser?.uid != uid) throw StateError('Account changed.');
+        return functions
+            .httpsCallable('completeReferralOnboarding')
+            .call<Map<String, dynamic>>({'referralCode': ''});
+      }).timeout(const Duration(seconds: 25));
+      await ReferralSkipStore.acknowledge(uid);
+      _referralSkipRetryAttempt = 0;
+    } catch (error) {
+      // Retain the account-scoped durable job and retry without blocking UI.
+      final retryable =
+          error is TimeoutException ||
+          (error is FirebaseFunctionsException &&
+              isRetryableCallableErrorCode(error.code));
+      if (retryable && !_disposed && auth.currentUser?.uid == uid) {
+        _referralSkipRetryTimer?.cancel();
+        final seconds = (30 * (1 << _referralSkipRetryAttempt.clamp(0, 5)))
+            .clamp(30, 900);
+        _referralSkipRetryAttempt += 1;
+        _referralSkipRetryTimer = Timer(
+          Duration(seconds: seconds),
+          () => unawaited(_syncPendingReferralSkip()),
+        );
+      }
+    } finally {
+      _referralSkipSyncUid = null;
+    }
+  }
 
   FirebaseAppState({
     required this.firestore,
@@ -4993,6 +5171,39 @@ class FirebaseAppState extends AppState with WidgetsBindingObserver {
       auth.currentUser?.uid == barberAccount?.id;
 
   @override
+  Future<void> setCustomerDiscoveryLocation({
+    required double latitude,
+    required double longitude,
+    required double accuracyMeters,
+  }) async {
+    await super.setCustomerDiscoveryLocation(
+      latitude: latitude,
+      longitude: longitude,
+      accuracyMeters: accuracyMeters,
+    );
+    if (!hasActiveCustomerSession || customerDiscoveryLatitude == null) return;
+    await firestore.collection('users').doc(customerAccount!.id).update({
+      'customerLocation': {
+        'latitude': customerDiscoveryLatitude,
+        'longitude': customerDiscoveryLongitude,
+        'accuracyMeters': customerDiscoveryAccuracy,
+        'purpose': 'salon_discovery',
+        'capturedAt': FieldValue.serverTimestamp(),
+      },
+    });
+  }
+
+  @override
+  Future<void> clearCustomerDiscoveryLocation() async {
+    await super.clearCustomerDiscoveryLocation();
+    if (hasActiveCustomerSession) {
+      await firestore.collection('users').doc(customerAccount!.id).update({
+        'customerLocation': FieldValue.delete(),
+      });
+    }
+  }
+
+  @override
   Future<ReferralCodes> ensureReferralCodes() {
     return _runFirebaseSave(() async {
       final response = await functions
@@ -5047,13 +5258,29 @@ class FirebaseAppState extends AppState with WidgetsBindingObserver {
   }
 
   @override
-  Future<void> completeReferralOnboarding({String referralCode = ''}) {
-    return _runFirebaseSave(() async {
-      await functions
-          .httpsCallable('completeReferralOnboarding')
-          .call<Map<String, dynamic>>({
-            'referralCode': referralCode.trim().toUpperCase(),
-          });
+  Future<void> completeReferralOnboarding({String referralCode = ''}) async {
+    final uid = auth.currentUser?.uid;
+    if (uid == null || activeRole == null) throw StateError('Sign in first.');
+    if (referralCode.trim().isEmpty) {
+      await ReferralSkipStore.skip(uid);
+      if (auth.currentUser?.uid != uid) return;
+      _locallySkippedReferralUids.add(uid);
+      _referralOnboardingRequired = false;
+      notifyListeners();
+      unawaited(_syncPendingReferralSkip());
+      return;
+    }
+    if (_locallySkippedReferralUids.contains(uid)) {
+      throw StateError('Referral setup is already complete for this account.');
+    }
+    await _runFirebaseSave(() async {
+      await _callProtectedFunction(
+        () => functions
+            .httpsCallable('completeReferralOnboarding')
+            .call<Map<String, dynamic>>({
+              'referralCode': referralCode.trim().toUpperCase(),
+            }),
+      );
       _referralOnboardingRequired = false;
       notifyListeners();
     });
@@ -5315,7 +5542,7 @@ class FirebaseAppState extends AppState with WidgetsBindingObserver {
   CheckoutDiscountOffer _checkoutDiscountOfferFromData(Map data) {
     return CheckoutDiscountOffer(
       campaignId: _string(data['campaignId'], ''),
-      campaignName: _string(data['campaignName'], 'Pritze offer'),
+      campaignName: _string(data['campaignName'], 'SalonFe offer'),
       discountType: _string(data['discountType'], 'percent'),
       discountPercent: _double(data['discountPercent'], 0),
       fixedDiscountAmount: _int(data['fixedDiscountAmount'], 0),
@@ -5607,6 +5834,7 @@ class FirebaseAppState extends AppState with WidgetsBindingObserver {
     if (state != AppLifecycleState.resumed) {
       return;
     }
+    unawaited(_syncPendingReferralSkip());
     // Coming back to the foreground is the moment the connection is most
     // likely to be healthy again, so retry a load that has failed rather than
     // waiting out the backoff. Only a failed one: restarting a load that is
@@ -5745,6 +5973,7 @@ class FirebaseAppState extends AppState with WidgetsBindingObserver {
 
   @override
   Future<void> signOutActiveUser() async {
+    _referralSkipRetryTimer?.cancel();
     _accountRestoreGeneration += 1;
     _suppressTokenRegistration = true;
     // Signing out always takes the listener down; whether it comes back is
@@ -5802,6 +6031,7 @@ class FirebaseAppState extends AppState with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    _referralSkipRetryTimer?.cancel();
     _disposed = true;
     _ownerBookingDecisionRetryTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
@@ -7393,6 +7623,9 @@ class FirebaseAppState extends AppState with WidgetsBindingObserver {
     List<String>? photoUrls,
     required String openTime,
     required String closeTime,
+    List<int>? closedWeekdays,
+    bool strictShop = false,
+    List<Barber> initialBarbers = const [],
   }) async {
     await _runFirebaseSave(() async {
       final normalizedPhone = normalizePhone(phone);
@@ -7404,7 +7637,8 @@ class FirebaseAppState extends AppState with WidgetsBindingObserver {
           !RegExp(r'^\+[1-9]\d{7,14}$').hasMatch(normalizedPhone)) {
         throw FormatException('Enter a valid salon phone number.');
       }
-      if (!_isValidEmail(normalizedEmail)) {
+      if (!(strictShop && normalizedEmail.isEmpty) &&
+          !_isValidEmail(normalizedEmail)) {
         throw FormatException('Enter a valid salon email address.');
       }
       if (name.trim().isEmpty ||
@@ -7423,20 +7657,31 @@ class FirebaseAppState extends AppState with WidgetsBindingObserver {
         throw ArgumentError('Closing time must be after opening time.');
       }
       final currentSalon = ownerSalon;
-      await _callOwnerMutation('saveOwnerSalonProfile', {
-        'salonId': ownerSalonId,
-        'name': name.trim(),
-        'ownerName': ownerName.trim(),
-        'address': address.trim(),
-        'directionsUrl': directionsUrl?.trim() ?? '',
-        'phone': normalizedPhone,
-        'email': normalizedEmail,
-        'logoUrl': logoUrl?.trim() ?? currentSalon.logoUrl,
-        'photoUrls': photoUrls ?? currentSalon.photoUrls,
-        'openTime': formatSalonClockTime(openTime),
-        'closeTime': formatSalonClockTime(closeTime),
-        'services': currentSalon.services.map(_serviceToMap).toList(),
-      });
+      if (strictShop) {
+        _validateOwnerShop(photoUrls ?? currentSalon.photoUrls, initialBarbers);
+      }
+      await _callOwnerMutation(
+        strictShop ? 'saveOwnerSalonShop' : 'saveOwnerSalonProfile',
+        {
+          'salonId': ownerSalonId,
+          'name': name.trim(),
+          'ownerName': ownerName.trim(),
+          'address': address.trim(),
+          'directionsUrl': directionsUrl?.trim() ?? '',
+          'phone': normalizedPhone,
+          'email': normalizedEmail,
+          'logoUrl': logoUrl?.trim() ?? currentSalon.logoUrl,
+          'photoUrls': photoUrls ?? currentSalon.photoUrls,
+          'openTime': formatSalonClockTime(openTime),
+          'closeTime': formatSalonClockTime(closeTime),
+          'closedWeekdays': closedWeekdays ?? currentSalon.closedWeekdays,
+          'services': currentSalon.services.map(_serviceToMap).toList(),
+          if (strictShop)
+            'initialBarbers': initialBarbers
+                .map((barber) => {'id': barber.id, 'name': barber.name})
+                .toList(),
+        },
+      );
       await super.updateOwnerSalon(
         name: name,
         ownerName: ownerName,
@@ -7448,8 +7693,47 @@ class FirebaseAppState extends AppState with WidgetsBindingObserver {
         photoUrls: photoUrls,
         openTime: openTime,
         closeTime: closeTime,
+        closedWeekdays: closedWeekdays,
+        strictShop: strictShop,
+        initialBarbers: initialBarbers,
       );
     });
+  }
+
+  @override
+  Future<SalonBalanceSummary> loadSalonBalance(String salonId) async {
+    if (!hasActiveOwnerSession || salonId != ownerSalonId) {
+      throw StateError('Only the salon owner can view its balance.');
+    }
+    final result = await functions
+        .httpsCallable('getSalonBalanceSummary')
+        .call<Map<String, dynamic>>({'salonId': salonId});
+    return SalonBalanceSummary(
+      deposit: (result.data['deposit'] as num).toInt(),
+      discount: (result.data['discount'] as num).toInt(),
+      earning: (result.data['earning'] as num).toInt(),
+    );
+  }
+
+  @override
+  Future<String> stageOwnerSalonPhoto({
+    required Uint8List bytes,
+    required String fileName,
+    String? contentType,
+  }) async {
+    if (!hasActiveOwnerSession || bytes.isEmpty) {
+      throw StateError('Log in and choose a salon photo.');
+    }
+    final ref = storage.ref(
+      'salons/$ownerSalonId/photos/${DateTime.now().microsecondsSinceEpoch}-${_safeUploadName(fileName)}',
+    );
+    await ref.putData(
+      bytes,
+      SettableMetadata(
+        contentType: contentType ?? _guessImageContentType(fileName),
+      ),
+    );
+    return ref.getDownloadURL();
   }
 
   @override
@@ -7667,7 +7951,7 @@ class FirebaseAppState extends AppState with WidgetsBindingObserver {
   }) async {
     if (!isApprovedServiceName(name)) {
       throw ArgumentError(
-        'Choose a service from the standard Pritze service menu.',
+        'Choose a service from the standard SalonFe service menu.',
       );
     }
     final template = serviceTemplateForName(name)!;
@@ -8266,7 +8550,7 @@ class FirebaseAppState extends AppState with WidgetsBindingObserver {
 
   Future<void> _performLocalNotificationsInitialization() async {
     final initializationSettings = InitializationSettings(
-      android: AndroidInitializationSettings('@mipmap/ic_launcher'),
+      android: AndroidInitializationSettings('ic_stat_salonfe'),
       iOS: DarwinInitializationSettings(
         requestAlertPermission: false,
         requestBadgePermission: false,
@@ -8539,7 +8823,7 @@ class FirebaseAppState extends AppState with WidgetsBindingObserver {
         : _pushNotificationChannel;
     await _localNotifications.show(
       id: DateTime.now().millisecondsSinceEpoch.remainder(1000000),
-      title: title ?? 'Pritze',
+      title: title ?? 'SalonFe',
       body: body ?? '',
       notificationDetails: NotificationDetails(
         android: AndroidNotificationDetails(
@@ -8548,7 +8832,7 @@ class FirebaseAppState extends AppState with WidgetsBindingObserver {
           channelDescription: channel.description,
           importance: Importance.high,
           priority: Priority.high,
-          icon: '@mipmap/ic_launcher',
+          icon: 'ic_stat_salonfe',
           playSound: !isScheduledBookingRequest,
         ),
         iOS: const DarwinNotificationDetails(),
@@ -9230,7 +9514,8 @@ class FirebaseAppState extends AppState with WidgetsBindingObserver {
         final account = _accountFromFirebaseUser(user, data);
         final role = _roleFromName(data['role'] as String?);
         _referralOnboardingRequired =
-            data['referralOnboardingCompleted'] == false;
+            data['referralOnboardingCompleted'] == false &&
+            !_locallySkippedReferralUids.contains(user.uid);
         if (role == UserRole.customer && _activeRole == UserRole.customer) {
           _customerAccount = account;
         } else if (role == UserRole.owner && _activeRole == UserRole.owner) {
@@ -9324,6 +9609,7 @@ class FirebaseAppState extends AppState with WidgetsBindingObserver {
   Future<void> _restoreAccountForUser(User user) async {
     final restoreGeneration = ++_accountRestoreGeneration;
     try {
+      await _restoreReferralSkip(user.uid);
       final accountFuture = firestore.collection('users').doc(user.uid).get();
       final ownerSalonsFuture = firestore
           .collection('salons')
@@ -9339,7 +9625,8 @@ class FirebaseAppState extends AppState with WidgetsBindingObserver {
       _ownerSalonResolved = true;
       final data = doc.data() ?? {};
       _referralOnboardingRequired =
-          data['referralOnboardingCompleted'] == false;
+          data['referralOnboardingCompleted'] == false &&
+          !_locallySkippedReferralUids.contains(user.uid);
       final roles = _rolesFromData(data['roles']);
       final storedRole = _roleFromName(data['activeRole'] as String?);
       final authoritativeRole = _roleFromName(data['role'] as String?);
@@ -9375,6 +9662,7 @@ class FirebaseAppState extends AppState with WidgetsBindingObserver {
         return;
       }
       _activateRole(role, account);
+      unawaited(_syncPendingReferralSkip());
       if (role == UserRole.customer) {
         unawaited(_refreshCustomerProinWalletInBackground());
       } else if (role == UserRole.owner) {
@@ -9410,7 +9698,7 @@ class FirebaseAppState extends AppState with WidgetsBindingObserver {
           ? (data['name'] as String).trim()
           : (user.displayName?.trim().isNotEmpty == true
                 ? user.displayName!.trim()
-                : 'Pritze user'),
+                : 'SalonFe user'),
       contact: provider == LoginProvider.phone
           ? normalizePhone(contact)
           : contact,
@@ -9723,6 +10011,7 @@ class FirebaseAppState extends AppState with WidgetsBindingObserver {
 
     _accountRestoreGeneration += 1;
     _activateRole(role, resolvedAccount);
+    unawaited(_syncPendingReferralSkip());
     if (role == UserRole.customer) {
       unawaited(_refreshCustomerProinWalletInBackground());
     } else if (role == UserRole.owner) {
@@ -9754,7 +10043,9 @@ class FirebaseAppState extends AppState with WidgetsBindingObserver {
     final submittedName =
         role == UserRole.customer &&
             account.provider == LoginProvider.phone &&
-            (account.name == 'Phone user' || account.name == 'Pritze user')
+            (account.name == 'Phone user' ||
+                account.name == 'SalonFe user' ||
+                account.name == 'Pritze user')
         ? ''
         : account.name;
     final response = await functions
@@ -9769,7 +10060,8 @@ class FirebaseAppState extends AppState with WidgetsBindingObserver {
       throw const CustomerNameRequiredException();
     }
     _referralOnboardingRequired =
-        response.data['requiresReferralOnboarding'] == true;
+        response.data['requiresReferralOnboarding'] == true &&
+        !await _restoreReferralSkip(account.id);
     return response.data['name']?.toString().trim() ?? '';
   }
 
@@ -9809,6 +10101,7 @@ class FirebaseAppState extends AppState with WidgetsBindingObserver {
       'photoUrls': salon.photoUrls,
       'openTime': salon.openTime,
       'closeTime': salon.closeTime,
+      'closedWeekdays': salon.closedWeekdays,
       'services': salon.services.map(_serviceToMap).toList(),
     });
   }
@@ -10057,6 +10350,7 @@ Map<String, Object?> ownerSalonCopyData(Salon salon) => {
   'reviewCount': salon.reviewCount,
   'openTime': salon.openTime,
   'closeTime': salon.closeTime,
+  'closedWeekdays': salon.closedWeekdays,
   'isOpen': salon.isOpen,
   'instantBookingsEnabled': salon.instantBookingsEnabled,
   'instantBookingsPausedDate': salon.instantBookingsPausedDate ?? '',
@@ -10108,6 +10402,15 @@ Salon _salonFromData(String id, Map<String, dynamic> data) {
     reviewCount: _int(data['reviewCount'], 0),
     openTime: _string(data['openTime'], ''),
     closeTime: _string(data['closeTime'], ''),
+    closedWeekdays:
+        (data['closedWeekdays'] is List
+                ? data['closedWeekdays'] as List
+                : const [])
+            .whereType<num>()
+            .map((day) => day.toInt())
+            .where((day) => day >= 1 && day <= 7)
+            .toSet()
+            .toList(),
     isOpen: data['isOpen'] == true,
     instantBookingsEnabled: data['instantBookingsEnabled'] != false,
     instantBookingsPausedDate: _string(data['instantBookingsPausedDate'], ''),

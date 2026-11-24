@@ -2,10 +2,9 @@ import 'dart:async';
 
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
+import '../../widgets/brand_header.dart';
 import '../../models/app_models.dart';
-import '../../models/service_catalog.dart';
 import '../../services/owner_alert_readiness.dart';
 import '../../state/app_state.dart';
 import '../../state/app_state_scope.dart';
@@ -14,12 +13,11 @@ import '../../utils/url_launcher_utils.dart';
 import '../../widgets/app_error_dialog.dart';
 import '../../widgets/app_ui.dart';
 import '../../widgets/account_actions.dart';
-import '../../widgets/auth_login_panel.dart';
-import '../../widgets/booking_status_timeline.dart';
 import '../../widgets/booking_extra_services.dart';
-import '../../widgets/status_chip.dart';
-import '../customer/customer_home_screen.dart';
+import '../entry/account_entry_screen.dart';
+import '../entry/role_sign_in_screen.dart';
 import 'salon_profile_setup_screen.dart';
+import 'salon_balance_screen.dart';
 
 class SalonDashboardScreen extends StatefulWidget {
   const SalonDashboardScreen({super.key});
@@ -31,37 +29,12 @@ class SalonDashboardScreen extends StatefulWidget {
 class _SalonDashboardScreenState extends State<SalonDashboardScreen> {
   final GlobalKey<_OwnerBookingsState> _bookingsKey = GlobalKey();
 
-  Future<void> _showPromotionalCredits(BuildContext context, String salonId) {
-    return showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      showDragHandle: true,
-      useSafeArea: true,
-      builder: (sheetContext) => Padding(
-        padding: EdgeInsets.fromLTRB(
-          18,
-          0,
-          18,
-          18 + MediaQuery.of(sheetContext).viewInsets.bottom,
-        ),
-        child: SingleChildScrollView(
-          child: _SalonPromotionalCreditsSheet(salonId: salonId),
-        ),
-      ),
-    );
-  }
-
-  Future<void> _openRevenueDetails(BuildContext context, String salonId) {
-    return Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => SalonRevenueDetailsScreen(salonId: salonId),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final appState = AppStateScope.watch(context);
+    if (appState.hasActiveCustomerSession || appState.hasActiveBarberSession) {
+      return const AppEntryScreen();
+    }
     final salon = appState.ownerSalon;
 
     if (!appState.hasActiveOwnerSession) {
@@ -80,16 +53,10 @@ class _SalonDashboardScreenState extends State<SalonDashboardScreen> {
           // does have a salon would be trapped on a screen they cannot leave.
           return _SalonLoadFailed(onRetry: appState.retrySalonsLoad);
         }
-        return const Scaffold(
-          body: Center(child: CircularProgressIndicator()),
-        );
+        return const Scaffold(body: Center(child: CircularProgressIndicator()));
       }
       return const SalonProfileSetupScreen();
     }
-    final activeInstantBooking = _activeInstantBooking(
-      appState.bookingsForSalon(salon.id),
-    );
-
     return DefaultTabController(
       length: 3,
       child: Builder(
@@ -104,29 +71,19 @@ class _SalonDashboardScreenState extends State<SalonDashboardScreen> {
             );
           }
           return Scaffold(
-            appBar: AppBar(
+            appBar: SalonFeAppBar(
               title: Text(
                 salon.name.trim().isEmpty ? 'Salon dashboard' : salon.name,
               ),
               actions: [
-                IconButton(
-                  icon: const Icon(Icons.edit_outlined),
-                  tooltip: 'Salon listing',
-                  onPressed: () {
-                    Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => const SalonProfileSetupScreen(),
-                      ),
-                    );
-                  },
-                ),
                 AccountOverflowMenu(
                   role: UserRole.owner,
                   canLogout: true,
-                  onRevenueDetailsOpened: () =>
-                      _openRevenueDetails(dashboardContext, salon.id),
-                  onPromotionalCreditsOpened: () =>
-                      _showPromotionalCredits(dashboardContext, salon.id),
+                  onBalanceOpened: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => SalonBalanceScreen(salonId: salon.id),
+                    ),
+                  ),
                   onNotificationOpened: (destination, {bookingId}) =>
                       _openNotificationDestination(
                         dashboardContext,
@@ -134,38 +91,26 @@ class _SalonDashboardScreenState extends State<SalonDashboardScreen> {
                         bookingId: bookingId,
                       ),
                   onLoggedOut: () async {
-                    if (context.mounted && Navigator.of(context).canPop()) {
-                      Navigator.of(context).pop();
-                    }
+                    if (context.mounted) openAccountHome(context);
                   },
                 ),
                 const SizedBox(width: 8),
               ],
               bottom: const TabBar(
                 tabs: [
-                  Tab(text: 'Overview'),
+                  Tab(text: 'Home'),
                   Tab(text: 'Bookings'),
-                  Tab(text: 'Team'),
+                  Tab(text: 'Shop'),
                 ],
               ),
             ),
-            bottomNavigationBar: activeInstantBooking == null
-                ? null
-                : _SalonActiveBookingFooter(
-                    booking: activeInstantBooking,
-                    onOpenBooking: () => _openNotificationDestination(
-                      dashboardContext,
-                      AppNotificationDestination.bookings,
-                      bookingId: activeInstantBooking.id,
-                    ),
-                  ),
             body: TabBarView(
               children: [
                 _OwnerRefresh(child: _OwnerOverview(salon: salon)),
                 _OwnerRefresh(
                   child: _OwnerBookings(key: _bookingsKey, salonId: salon.id),
                 ),
-                _OwnerRefresh(child: _OwnerStaff(salon: salon)),
+                const SalonProfileSetupScreen(embedded: true),
               ],
             ),
           );
@@ -215,50 +160,6 @@ class _SalonDashboardScreenState extends State<SalonDashboardScreen> {
         _revealBookingWhenReady(bookingId, attempt + 1);
       }
     });
-  }
-
-  Booking? _activeInstantBooking(List<Booking> bookings) {
-    final now = DateTime.now();
-    final active =
-        bookings
-            .where(
-              (booking) =>
-                  booking.isInstant &&
-                  (booking.status == BookingStatus.pending ||
-                      (booking.status == BookingStatus.confirmed &&
-                          now.isBefore(booking.salonArrivalDeadline))),
-            )
-            .toList()
-          ..sort((a, b) => a.start.compareTo(b.start));
-    return active.firstOrNull;
-  }
-}
-
-class _SalonActiveBookingFooter extends StatelessWidget {
-  final Booking booking;
-  final VoidCallback onOpenBooking;
-
-  const _SalonActiveBookingFooter({
-    required this.booking,
-    required this.onOpenBooking,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final tabController = DefaultTabController.of(context);
-    return AnimatedBuilder(
-      animation: tabController,
-      builder: (context, child) {
-        if (tabController.index == 1) {
-          return const SizedBox.shrink();
-        }
-        return BookingArrivalBottomPanel(
-          booking: booking,
-          audience: BookingTimerAudience.salon,
-          onTap: onOpenBooking,
-        );
-      },
-    );
   }
 }
 
@@ -335,7 +236,7 @@ class _SalonRevenueDetailsScreenState extends State<SalonRevenueDetailsScreen> {
     final barberRows = _barberRevenueRows(appState, rangeBookings);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Revenue details')),
+      appBar: SalonFeAppBar(title: const Text('Revenue details')),
       body: ListView(
         physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.fromLTRB(18, 14, 18, 28),
@@ -386,13 +287,13 @@ class _SalonRevenueDetailsScreenState extends State<SalonRevenueDetailsScreen> {
                 icon: Icons.point_of_sale_outlined,
                 label: 'Counter collection',
                 value: _money(totals.customerCollection),
-                color: AppColors.goldDeep,
+                color: AppColors.primaryDark,
               ),
               _MetricCard(
                 icon: Icons.timeline_outlined,
                 label: 'Avg order',
                 value: _money(totals.averageOrderValue),
-                color: AppColors.amber,
+                color: AppColors.primary,
               ),
             ],
           ),
@@ -436,11 +337,11 @@ class _SalonRevenueDetailsScreenState extends State<SalonRevenueDetailsScreen> {
                 _EarningLine(
                   label: 'Customer discounts',
                   amount: totals.customerDiscount,
-                  color: AppColors.coral,
+                  color: AppColors.danger,
                 ),
                 const SizedBox(height: 9),
                 _EarningLine(
-                  label: 'Pritze discount support',
+                  label: 'SalonFe discount support',
                   amount: totals.discountSupport,
                   color: AppColors.success,
                 ),
@@ -455,7 +356,7 @@ class _SalonRevenueDetailsScreenState extends State<SalonRevenueDetailsScreen> {
                   child: Divider(height: 1),
                 ),
                 _EarningLine(
-                  label: 'Total Pritze contribution',
+                  label: 'Total SalonFe contribution',
                   amount: totals.pritzeContribution,
                   emphasized: true,
                 ),
@@ -542,108 +443,80 @@ class _SalonRevenueDetailsScreenState extends State<SalonRevenueDetailsScreen> {
 
 class _OwnerOverview extends StatelessWidget {
   final Salon salon;
-
   const _OwnerOverview({required this.salon});
 
   @override
   Widget build(BuildContext context) {
-    final appState = AppStateScope.watch(context);
-    final serviceRevenue = appState.serviceRevenue(salon.id);
-    final revenueEntries =
-        serviceRevenue.entries.where((entry) => entry.value > 0).toList()
+    final state = AppStateScope.watch(context);
+    final entries =
+        state
+            .serviceRevenue(salon.id)
+            .entries
+            .where((e) => e.value > 0)
+            .toList()
           ..sort((a, b) => b.value.compareTo(a.value));
-    final pendingRequests = appState.pendingJoinRequests
-        .where((request) => request.salonId == salon.id)
-        .toList();
-
     return ListView(
       physics: const AlwaysScrollableScrollPhysics(),
-      padding: const EdgeInsets.fromLTRB(18, 14, 18, 28),
+      padding: const EdgeInsets.fromLTRB(18, 18, 18, 24),
       children: [
-        AppHeroHeader(
-          eyebrow: 'Revenue at ${salon.displayName}',
-          title: '₹${appState.totalCollection(salon.id)} total earning',
-          subtitle:
-              '${appState.todayBookingCount(salon.id)} appointments today. Track staff, revenue, and booking status.',
-          icon: Icons.insights,
+        Row(
+          children: [
+            Expanded(
+              child: _MetricCard(
+                icon: Icons.account_balance_wallet_outlined,
+                label: 'Total earnings',
+                value: '₹${state.totalCollection(salon.id)}',
+                color: AppColors.primary,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: _MetricCard(
+                icon: Icons.today_outlined,
+                label: 'Today’s earnings',
+                value: '₹${state.dailyCollection(salon.id)}',
+                color: AppColors.primary,
+              ),
+            ),
+          ],
         ),
         if (!salon.isApproved) ...[
-          const SizedBox(height: 14),
+          const SizedBox(height: 16),
           _SalonApprovalBanner(salon: salon),
         ],
-        if (!appState.isSalonSetupComplete(salon.id)) ...[
-          const SizedBox(height: 14),
+        if (!state.isSalonSetupComplete(salon.id)) ...[
+          const SizedBox(height: 16),
           _OwnerSetupBanner(salon: salon),
         ],
-        const SizedBox(height: 14),
+        const SizedBox(height: 16),
         const _OwnerAlertReadinessBanner(),
         _InstantBookingControl(salon: salon),
-        if (pendingRequests.isNotEmpty) ...[
-          const SizedBox(height: 18),
-          SectionHeader(title: 'Barber requests (${pendingRequests.length})'),
-          const SizedBox(height: 10),
-          for (final request in pendingRequests) ...[
-            _JoinRequestCard(request: request),
-            const SizedBox(height: 10),
-          ],
-        ],
-        const SizedBox(height: 22),
-        GridView.count(
-          shrinkWrap: true,
-          crossAxisCount: 2,
-          crossAxisSpacing: 10,
-          mainAxisSpacing: 10,
-          childAspectRatio: 1.34,
-          physics: const NeverScrollableScrollPhysics(),
-          children: [
-            _MetricCard(
-              icon: Icons.event_available,
-              label: 'Today bookings',
-              value: '${appState.todayBookingCount(salon.id)}',
-              color: AppColors.primary,
-            ),
-            _MetricCard(
-              icon: Icons.pending_actions,
-              label: 'Pending',
-              value:
-                  '${appState.todayCountByStatus(salon.id, BookingStatus.pending)}',
-              color: AppColors.amber,
-            ),
-            _MetricCard(
-              icon: Icons.play_circle_outline,
-              label: 'In progress',
-              value:
-                  '${appState.todayCountByStatus(salon.id, BookingStatus.inProgress)}',
-              color: AppColors.primary,
-            ),
-            _MetricCard(
-              icon: Icons.done_all,
-              label: 'Completed',
-              value:
-                  '${appState.todayCountByStatus(salon.id, BookingStatus.completed)}',
-              color: AppColors.success,
-            ),
-          ],
-        ),
-        const SizedBox(height: 18),
-        const SectionHeader(title: 'Service revenue'),
-        const SizedBox(height: 10),
-        if (revenueEntries.isEmpty)
-          const GlassCard(child: Text('Completed bookings will appear here.'))
+        const SizedBox(height: 24),
+        const SectionHeader(title: 'Top services'),
+        const SizedBox(height: 12),
+        if (entries.isEmpty)
+          const GlassCard(child: Text('Completed services appear here.'))
         else
           GlassCard(
             child: Column(
               children: [
-                for (final entry in revenueEntries.take(8))
+                for (final entry in entries.take(8))
                   _ProgressRow(
                     label:
-                        appState.getService(salon.id, entry.key)?.name ??
+                        state.getService(salon.id, entry.key)?.name ??
                         'Booked service',
                     value: '₹${entry.value}',
                   ),
               ],
             ),
           ),
+        const SizedBox(height: 24),
+        FilledButton.icon(
+          key: const ValueKey('owner-view-bookings'),
+          onPressed: () => DefaultTabController.of(context).animateTo(1),
+          icon: const Icon(Icons.calendar_month_outlined),
+          label: const Text('View bookings'),
+        ),
       ],
     );
   }
@@ -651,54 +524,39 @@ class _OwnerOverview extends StatelessWidget {
 
 class _OwnerBookings extends StatefulWidget {
   final String salonId;
-
   const _OwnerBookings({super.key, required this.salonId});
-
   @override
   State<_OwnerBookings> createState() => _OwnerBookingsState();
 }
 
 class _OwnerBookingsState extends State<_OwnerBookings> {
-  SalonBookingBucket _selectedBucket = SalonBookingBucket.upcoming;
-  String? _requestedBookingId;
+  bool _historyExpanded = false;
+  String? _highlightedId;
   late final Timer _clock;
 
   void showBooking(String? bookingId) {
-    final normalizedBookingId = bookingId?.trim() ?? '';
-    if (normalizedBookingId.isEmpty) {
-      return;
-    }
-    _requestedBookingId = normalizedBookingId;
-    _revealRequestedBooking();
-  }
-
-  void _revealRequestedBooking() {
-    final bookingId = _requestedBookingId;
-    if (bookingId == null || !mounted) {
-      return;
-    }
-    final appState = AppStateScope.read(context);
-    final booking = appState
+    if (bookingId == null || bookingId.trim().isEmpty || !mounted) return;
+    final state = AppStateScope.read(context);
+    final booking = state
         .bookingsForSalon(widget.salonId)
-        .where((item) => item.id == bookingId)
+        .where((b) => b.id == bookingId)
         .firstOrNull;
-    if (booking == null) {
-      return;
-    }
-    _requestedBookingId = null;
-    final bucket = appState.salonBookingBucket(booking);
-    if (_selectedBucket != bucket) {
-      setState(() => _selectedBucket = bucket);
-    }
+    if (booking == null) return;
+    final bucket = state.salonBookingBucket(booking);
+    setState(() {
+      _highlightedId = bookingId;
+      if (bucket == SalonBookingBucket.history ||
+          bucket == SalonBookingBucket.cancelled) {
+        _historyExpanded = true;
+      }
+    });
   }
 
   @override
   void initState() {
     super.initState();
     _clock = Timer.periodic(const Duration(minutes: 1), (_) {
-      if (mounted) {
-        setState(() {});
-      }
+      if (mounted) setState(() {});
     });
   }
 
@@ -710,190 +568,134 @@ class _OwnerBookingsState extends State<_OwnerBookings> {
 
   @override
   Widget build(BuildContext context) {
-    final appState = AppStateScope.watch(context);
+    final state = AppStateScope.watch(context);
     final now = DateTime.now();
-    final allBookings = appState.bookingsForSalon(widget.salonId);
-    if (_requestedBookingId != null) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _revealRequestedBooking();
-      });
-    }
-    final counts = {
-      for (final bucket in SalonBookingBucket.values)
-        bucket: allBookings
-            .where(
-              (booking) =>
-                  appState.salonBookingBucket(booking, now: now) == bucket,
-            )
-            .length,
-    };
-    final bookings =
-        allBookings.where((booking) {
-          return appState.salonBookingBucket(booking, now: now) ==
-              _selectedBucket;
-        }).toList()..sort((a, b) {
-          if (_selectedBucket == SalonBookingBucket.history ||
-              _selectedBucket == SalonBookingBucket.cancelled) {
-            return b.start.compareTo(a.start);
-          }
-          return a.start.compareTo(b.start);
+    final all = state.bookingsForSalon(widget.salonId);
+    List<Booking> section(
+      Set<SalonBookingBucket> buckets, {
+      bool reverse = false,
+    }) {
+      return all
+          .where((b) => buckets.contains(state.salonBookingBucket(b, now: now)))
+          .toList()
+        ..sort((a, b) {
+          if (a.id == _highlightedId) return -1;
+          if (b.id == _highlightedId) return 1;
+          return reverse
+              ? b.start.compareTo(a.start)
+              : a.start.compareTo(b.start);
         });
-    final oldestInstantRequest =
-        allBookings
-            .where(
-              (booking) =>
-                  booking.isInstant && booking.status == BookingStatus.pending,
-            )
-            .toList()
-          ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+    }
 
+    final requests = section({SalonBookingBucket.requests});
+    final live = section({
+      SalonBookingBucket.upcoming,
+      SalonBookingBucket.active,
+    });
+    final history = section({
+      SalonBookingBucket.history,
+      SalonBookingBucket.cancelled,
+    }, reverse: true);
+    final today = all.where((b) => _isSameDay(b.start, now)).length;
+    Widget card(Booking booking) => Padding(
+      padding: const EdgeInsets.only(bottom: 14),
+      child: _OwnerBookingCard(
+        booking: booking,
+        bucket: state.salonBookingBucket(booking, now: now),
+        outcome: state.salonBookingOutcome(booking, now: now),
+        now: now,
+        onBookingChanged: () {
+          if (mounted) setState(() {});
+        },
+      ),
+    );
     return ListView(
       physics: const AlwaysScrollableScrollPhysics(),
-      padding: const EdgeInsets.fromLTRB(18, 16, 18, 28),
+      padding: const EdgeInsets.fromLTRB(18, 20, 18, 28),
       children: [
         const Text(
-          'Booking desk',
-          style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+          'All Bookings',
+          style: TextStyle(fontSize: 23, fontWeight: FontWeight.w800),
         ),
-        const SizedBox(height: 6),
-        Text(
-          'Scheduled appointments register in Upcoming. Instant requests stay urgent until you accept or reject them.',
-          style: Theme.of(context).textTheme.bodyMedium,
-        ),
-        const SizedBox(height: 16),
+        const SizedBox(height: 14),
         Row(
           children: [
-            Expanded(
-              child: _OwnerBookingMetric(
-                value: '${counts[SalonBookingBucket.requests] ?? 0}',
-                label: 'Requests',
-                color: AppColors.amber,
-              ),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: _OwnerBookingMetric(
-                value: '${counts[SalonBookingBucket.upcoming] ?? 0}',
-                label: 'Upcoming',
-                color: AppColors.goldDeep,
-              ),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: _OwnerBookingMetric(
-                value: '${counts[SalonBookingBucket.active] ?? 0}',
-                label: 'Active',
-                color: AppColors.primary,
+            AppPill(label: 'Today · $today', color: AppColors.primaryDark),
+            const SizedBox(width: 10),
+            const Expanded(
+              child: Text(
+                'All appointments in one place',
+                style: TextStyle(color: AppColors.muted, fontSize: 13),
               ),
             ),
           ],
         ),
-        if (oldestInstantRequest.isNotEmpty &&
-            _selectedBucket != SalonBookingBucket.requests) ...[
-          const SizedBox(height: 14),
-          GlassCard(
-            color: AppColors.coral.withAlpha(12),
-            child: Row(
-              children: [
-                const SoftIconBox(
-                  icon: Icons.notifications_active_outlined,
-                  color: AppColors.coral,
-                  size: 44,
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    '${oldestInstantRequest.first.customerName} is waiting for an instant booking response.',
-                    style: const TextStyle(fontWeight: FontWeight.w600),
-                  ),
-                ),
-                TextButton(
-                  onPressed: () => setState(
-                    () => _selectedBucket = SalonBookingBucket.requests,
-                  ),
-                  child: const Text('Respond'),
-                ),
-              ],
-            ),
-          ),
-        ],
-        const SizedBox(height: 14),
-        SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          child: Row(
-            children: [
-              for (final bucket in SalonBookingBucket.values) ...[
-                ChoiceChip(
-                  selected: _selectedBucket == bucket,
-                  avatar: Icon(_bucketIcon(bucket), size: 18),
-                  label: Text(
-                    '${_bucketLabel(bucket)} (${counts[bucket] ?? 0})',
-                  ),
-                  onSelected: (_) => setState(() => _selectedBucket = bucket),
-                ),
-                const SizedBox(width: 8),
-              ],
-            ],
-          ),
-        ),
-        const SizedBox(height: 16),
-        if (bookings.isEmpty)
-          EmptyState(
-            icon: _bucketIcon(_selectedBucket),
-            title: _emptyTitle(_selectedBucket),
-            message: _emptyMessage(_selectedBucket),
+        const SizedBox(height: 24),
+        const SectionHeader(title: 'Needs Action'),
+        const SizedBox(height: 12),
+        if (requests.isEmpty)
+          const _BookingSectionEmpty(
+            icon: Icons.task_alt_rounded,
+            text: 'No new requests',
           )
         else
-          for (final booking in bookings) ...[
-            _OwnerBookingCard(
-              booking: booking,
-              bucket: _selectedBucket,
-              outcome: appState.salonBookingOutcome(booking, now: now),
-              now: now,
-              onBookingChanged: () => showBooking(booking.id),
-            ),
-            const SizedBox(height: 12),
-          ],
+          ...requests.map(card),
+        const SizedBox(height: 20),
+        const SectionHeader(title: 'Live Bookings'),
+        const SizedBox(height: 12),
+        if (live.isEmpty)
+          const _BookingSectionEmpty(
+            icon: Icons.event_available_outlined,
+            text: 'No current bookings',
+          )
+        else
+          ...live.map(card),
+        const SizedBox(height: 18),
+        ExpansionTile(
+          key: ValueKey('owner-previous-bookings-$_historyExpanded'),
+          initiallyExpanded: _historyExpanded,
+          tilePadding: EdgeInsets.zero,
+          childrenPadding: EdgeInsets.zero,
+          title: Text(
+            'Previous bookings (${history.length})',
+            style: const TextStyle(fontWeight: FontWeight.w700),
+          ),
+          onExpansionChanged: (value) =>
+              setState(() => _historyExpanded = value),
+          children: _historyExpanded
+              ? [
+                  if (history.isEmpty)
+                    const _BookingSectionEmpty(
+                      icon: Icons.history,
+                      text: 'No previous bookings',
+                    )
+                  else
+                    ...history.map(card),
+                ]
+              : const [],
+        ),
       ],
     );
   }
+}
 
-  String _bucketLabel(SalonBookingBucket bucket) => switch (bucket) {
-    SalonBookingBucket.requests => 'Requests',
-    SalonBookingBucket.upcoming => 'Upcoming',
-    SalonBookingBucket.active => 'Active',
-    SalonBookingBucket.history => 'History',
-    SalonBookingBucket.cancelled => 'Cancelled',
-  };
-
-  IconData _bucketIcon(SalonBookingBucket bucket) => switch (bucket) {
-    SalonBookingBucket.requests => Icons.pending_actions,
-    SalonBookingBucket.upcoming => Icons.upcoming,
-    SalonBookingBucket.active => Icons.content_cut,
-    SalonBookingBucket.history => Icons.history,
-    SalonBookingBucket.cancelled => Icons.cancel_outlined,
-  };
-
-  String _emptyTitle(SalonBookingBucket bucket) => switch (bucket) {
-    SalonBookingBucket.requests => 'No booking requests',
-    SalonBookingBucket.upcoming => 'No accepted upcoming bookings',
-    SalonBookingBucket.active => 'No active services',
-    SalonBookingBucket.history => 'No previous bookings',
-    SalonBookingBucket.cancelled => 'No cancelled or rejected bookings',
-  };
-
-  String _emptyMessage(SalonBookingBucket bucket) => switch (bucket) {
-    SalonBookingBucket.requests =>
-      'Only instant requests appear here and remain until you accept or reject them.',
-    SalonBookingBucket.upcoming =>
-      'Registered scheduled bookings and accepted instant bookings appear here.',
-    SalonBookingBucket.active =>
-      'Services in progress and accepted bookings inside their appointment window appear here.',
-    SalonBookingBucket.history =>
-      'Completed, missed, and not-accepted expired bookings appear here.',
-    SalonBookingBucket.cancelled =>
-      'Bookings cancelled by customer/owner or rejected by salon appear here.',
-  };
+class _BookingSectionEmpty extends StatelessWidget {
+  final IconData icon;
+  final String text;
+  const _BookingSectionEmpty({required this.icon, required this.text});
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 14),
+    child: Row(
+      children: [
+        Icon(icon, color: AppColors.muted, size: 22),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(text, style: const TextStyle(color: AppColors.muted)),
+        ),
+      ],
+    ),
+  );
 }
 
 class _InstantBookingControl extends StatelessWidget {
@@ -910,7 +712,7 @@ class _InstantBookingControl extends StatelessWidget {
     final status = enabled ? (isOpen ? 'On now' : 'On for opening') : 'Off';
 
     return GlassCard(
-      color: enabled ? AppColors.champagne.withAlpha(92) : Colors.white,
+      color: enabled ? AppColors.primarySoft.withAlpha(92) : Colors.white,
       child: Row(
         children: [
           SoftIconBox(icon: Icons.bolt_outlined, color: color, size: 46),
@@ -979,230 +781,12 @@ class _InstantBookingControl extends StatelessWidget {
   }
 }
 
-class _OwnerBookingMetric extends StatelessWidget {
-  final String value;
-  final String label;
-  final Color color;
-
-  const _OwnerBookingMetric({
-    required this.value,
-    required this.label,
-    required this.color,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
-      decoration: BoxDecoration(
-        color: color.withAlpha(10),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: color.withAlpha(32)),
-      ),
-      child: Column(
-        children: [
-          Text(
-            value,
-            style: TextStyle(
-              color: color,
-              fontSize: 18,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          const SizedBox(height: 2),
-          Text(
-            label,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: Theme.of(
-              context,
-            ).textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _BarberWorkloadCard extends StatelessWidget {
-  final Barber barber;
-
-  const _BarberWorkloadCard({required this.barber});
-
-  @override
-  Widget build(BuildContext context) {
-    final appState = AppStateScope.watch(context);
-    final now = DateTime.now();
-    final todayBookings = appState.bookingsForBarber(barber.id).where((
-      booking,
-    ) {
-      return booking.status != BookingStatus.cancelled &&
-          booking.start.year == now.year &&
-          booking.start.month == now.month &&
-          booking.start.day == now.day;
-    }).toList();
-    final current = appState.currentBookingForBarber(barber.id);
-    final occupied = current != null;
-    final upcoming = todayBookings.where((booking) {
-      return booking.status == BookingStatus.pending ||
-          booking.status == BookingStatus.confirmed;
-    }).length;
-    final completed = todayBookings
-        .where((booking) => booking.status == BookingStatus.completed)
-        .length;
-    final currentService = current == null
-        ? null
-        : appState.getService(current.salonId, current.serviceId);
-    final statusColor = occupied ? AppColors.coral : AppColors.success;
-
-    return GlassCard(
-      color: occupied ? AppColors.coral.withAlpha(9) : Colors.white,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              CircleAvatar(
-                radius: 24,
-                backgroundColor: statusColor.withAlpha(18),
-                foregroundColor: statusColor,
-                child: Text(
-                  barber.name.characters.first.toUpperCase(),
-                  style: const TextStyle(fontWeight: FontWeight.w600),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      barber.name,
-                      style: Theme.of(context).textTheme.titleMedium,
-                    ),
-                    const SizedBox(height: 3),
-                    Text(
-                      barber.speciality,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.bodyMedium,
-                    ),
-                  ],
-                ),
-              ),
-              AppPill(
-                icon: occupied ? Icons.content_cut : Icons.event_available,
-                label: occupied ? 'Occupied' : 'Available',
-                color: statusColor,
-              ),
-            ],
-          ),
-          if (current != null) ...[
-            const SizedBox(height: 12),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: AppColors.coral.withAlpha(10),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: AppColors.coral.withAlpha(45)),
-              ),
-              child: Text(
-                'Now serving ${current.customerName} · '
-                '${currentService?.name ?? current.serviceName}',
-                style: const TextStyle(
-                  color: AppColors.ink,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ),
-          ],
-          const SizedBox(height: 14),
-          Row(
-            children: [
-              Expanded(
-                child: _WorkloadMetric(
-                  value: '${todayBookings.length}',
-                  label: 'Today',
-                  color: AppColors.primary,
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: _WorkloadMetric(
-                  value: '$upcoming',
-                  label: 'Upcoming',
-                  color: AppColors.amber,
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: _WorkloadMetric(
-                  value: '$completed',
-                  label: 'Completed',
-                  color: AppColors.success,
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _WorkloadMetric extends StatelessWidget {
-  final String value;
-  final String label;
-  final Color color;
-
-  const _WorkloadMetric({
-    required this.value,
-    required this.label,
-    required this.color,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
-      decoration: BoxDecoration(
-        color: color.withAlpha(10),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: color.withAlpha(30)),
-      ),
-      child: Column(
-        children: [
-          Text(
-            value,
-            style: TextStyle(
-              color: color,
-              fontSize: 18,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          const SizedBox(height: 2),
-          Text(
-            label,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: Theme.of(
-              context,
-            ).textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w500),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class _OwnerBookingCard extends StatelessWidget {
   final Booking booking;
   final SalonBookingBucket bucket;
   final String outcome;
   final DateTime now;
   final VoidCallback onBookingChanged;
-
   const _OwnerBookingCard({
     required this.booking,
     required this.bucket,
@@ -1213,247 +797,203 @@ class _OwnerBookingCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final appState = AppStateScope.watch(context);
-    final service = appState.getService(booking.salonId, booking.serviceId);
-    final barber = appState.getBarber(booking.barberId);
-    final end = booking.start.add(Duration(minutes: booking.durationMinutes));
-    final timeLabel = booking.isInstant
-        ? booking.status == BookingStatus.pending
-              ? 'Instant request · ${booking.customerArrivalMinutes} min customer ETA · ${booking.salonArrivalMinutes} min salon window'
-              : 'Arrive by ${appState.formatDate(booking.start)}, ${appState.formatTime(booking.start)}'
-        : '${appState.formatDate(booking.start)}, ${appState.formatTime(booking.start)}';
-    final isPastEnd = !now.isBefore(end);
-    final canRespond =
-        booking.isInstant &&
+    final state = AppStateScope.watch(context);
+    final service = state.getService(booking.salonId, booking.serviceId);
+    final barber = state.getBarber(booking.barberId);
+    final pending =
         booking.status == BookingStatus.pending &&
         bucket == SalonBookingBucket.requests;
-    final canAccept = canRespond;
+    final live =
+        bucket == SalonBookingBucket.upcoming ||
+        bucket == SalonBookingBucket.active;
+    final end = booking.start.add(Duration(minutes: booking.durationMinutes));
     final canStart =
         booking.status == BookingStatus.confirmed &&
-        (bucket == SalonBookingBucket.upcoming ||
-            bucket == SalonBookingBucket.active) &&
+        live &&
         (booking.isInstant || _isSameDay(now, booking.start)) &&
-        !isPastEnd;
-    final canCancel =
-        booking.status == BookingStatus.confirmed &&
-        !isPastEnd &&
-        bucket != SalonBookingBucket.history;
-    final canComplete = booking.status == BookingStatus.inProgress;
-    final canRateCustomer = booking.status == BookingStatus.completed;
-
-    return GlassCard(
+        now.isBefore(end);
+    final accepted = booking.status == BookingStatus.confirmed;
+    final progress = booking.status == BookingStatus.inProgress;
+    final color = accepted || booking.status == BookingStatus.completed
+        ? AppColors.success
+        : (booking.status == BookingStatus.cancelled ||
+              booking.status == BookingStatus.rejected)
+        ? AppColors.danger
+        : AppColors.primaryDark;
+    final status = pending
+        ? 'New Request'
+        : accepted
+        ? 'Accepted'
+        : progress
+        ? 'In Progress'
+        : outcome;
+    Widget action(
+      BookingStatus status,
+      String label,
+      bool primary, {
+      bool enabled = true,
+    }) => _StatusButton(
+      key: ValueKey('${booking.id}-${status.name}'),
+      label: label,
+      status: status,
+      booking: booking,
+      isPrimary: primary,
+      enabled: enabled,
+      onBookingChanged: onBookingChanged,
+    );
+    return Container(
+      key: ValueKey('owner-booking-${booking.id}'),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: pending ? AppColors.primary : AppColors.line,
+          width: pending ? 1.5 : 1,
+        ),
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              SoftIconBox(
-                icon: Icons.person,
-                color: _statusColor(booking.status),
-                size: 46,
+              Expanded(
+                child: Text(
+                  booking.customerName,
+                  style: const TextStyle(
+                    fontSize: 21,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: 8),
+              Flexible(
+                child: _BookingStatusPill(
+                  label: status,
+                  color: color,
+                  accepted: accepted,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: [
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      booking.customerName,
-                      style: Theme.of(context).textTheme.titleLarge,
+                      '${booking.resolvedServiceName(service)} · ${barber?.name ?? 'Any barber'}',
+                      style: const TextStyle(
+                        color: AppColors.muted,
+                        fontSize: 15,
+                      ),
                     ),
-                    const SizedBox(height: 4),
+                    const SizedBox(height: 5),
                     Text(
-                      'Ordered service: ${booking.resolvedServiceName(service)}',
-                      style: Theme.of(context).textTheme.bodyMedium,
+                      '${state.formatTime(booking.start)} · ₹${booking.customerPayableAmount}',
+                      style: const TextStyle(
+                        fontSize: 17,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
+                    if (!_isSameDay(now, booking.start))
+                      Padding(
+                        padding: const EdgeInsets.only(top: 3),
+                        child: Text(
+                          state.formatDate(booking.start),
+                          style: const TextStyle(
+                            color: AppColors.muted,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ),
                   ],
                 ),
               ),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  StatusChip(status: booking.status),
-                  const SizedBox(height: 6),
-                  AppPill(label: outcome, color: _statusColor(booking.status)),
-                  if (booking.isInstant) ...[
-                    const SizedBox(height: 6),
-                    const AppPill(
-                      icon: Icons.bolt_outlined,
-                      label: 'Instant',
-                      color: AppColors.coral,
-                    ),
-                  ],
-                ],
-              ),
+              if (booking.customerPhone.trim().isNotEmpty)
+                IconButton(
+                  tooltip: 'Call customer',
+                  icon: const Icon(Icons.call_outlined),
+                  onPressed: () => UrlLauncherUtils.makePhoneCall(
+                    context,
+                    booking.customerPhone,
+                  ),
+                ),
             ],
           ),
-          const SizedBox(height: 14),
-          _SmallDetail(
-            icon: Icons.badge,
-            label:
-                barber?.name ??
-                (booking.isInstant ? 'Any available barber' : 'Barber'),
-          ),
-          _SmallDetail(icon: Icons.schedule, label: timeLabel),
-          if (booking.isInstant && booking.status == BookingStatus.confirmed)
-            _SmallDetail(
-              icon: Icons.hourglass_bottom_outlined,
-              label:
-                  'Expect customer by ${appState.formatTime(booking.salonArrivalDeadline)}',
-            ),
-          if (booking.customerPhone.trim().isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.only(top: 10),
-              child: Row(
-                children: [
-                  const Expanded(
-                    child: Text(
-                      'Customer contact',
-                      style: TextStyle(fontWeight: FontWeight.w600),
-                    ),
-                  ),
-                  IconButton.filledTonal(
-                    onPressed: () => UrlLauncherUtils.makePhoneCall(
-                      context,
-                      booking.customerPhone,
-                    ),
-                    icon: const Icon(Icons.call_outlined),
-                    tooltip: 'Call customer',
-                  ),
-                ],
-              ),
-            ),
-          if (booking.cancellationReason.isNotEmpty)
-            _SmallDetail(
-              icon: Icons.info_outline,
-              label: 'Cancellation reason: ${booking.cancellationReason}',
-            ),
-          _SmallDetail(
-            icon: Icons.timer_outlined,
-            label:
-                '${booking.durationMinutes} min · ends ${appState.formatTime(end)}',
-          ),
-          _SmallDetail(
-            icon: Icons.payments_outlined,
-            label: [
-              'Service ₹${booking.resolvedServicePrice(service)}',
-              'customer pays ₹${booking.customerPayableAmount}',
-              if (booking.hasDiscount) 'discount ₹${booking.discountAmount}',
-              if (booking.pritzePayoutAmount > 0)
-                'discount support ₹${booking.pritzePayoutAmount}',
-              if (booking.hasProin)
-                'Proin reimbursement ₹${booking.proinAppliedAmount}',
-              if (booking.hasDiscount || booking.hasProin)
-                'Pritze contribution ₹${booking.totalPritzeContribution}',
-              if (booking.hasDiscount || booking.hasProin)
-                'total ₹${booking.salonTotalEarning}',
-            ].join(' · '),
-          ),
-          const SizedBox(height: 14),
-          BookingExtraServices(booking: booking),
-          if (canRespond ||
-              canStart ||
-              canCancel ||
-              canComplete ||
-              canRateCustomer)
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
+          const SizedBox(height: 18),
+          if (pending)
+            Row(
               children: [
-                if (canRespond) ...[
-                  _StatusButton(
-                    key: ValueKey('${booking.id}-confirmed'),
-                    label: 'Accept booking',
-                    status: BookingStatus.confirmed,
-                    booking: booking,
-                    icon: Icons.check_circle_outline,
-                    isPrimary: true,
-                    enabled: canAccept,
-                    onBookingChanged: onBookingChanged,
-                  ),
-                  _StatusButton(
-                    key: ValueKey('${booking.id}-rejected'),
-                    label: 'Reject',
-                    status: BookingStatus.rejected,
-                    booking: booking,
-                    icon: Icons.close,
-                    onBookingChanged: onBookingChanged,
-                  ),
-                ],
-                if (canStart)
-                  _StatusButton(
-                    key: ValueKey('${booking.id}-inProgress'),
-                    label: 'Start service',
-                    status: BookingStatus.inProgress,
-                    booking: booking,
-                    icon: Icons.content_cut,
-                    isPrimary: true,
-                    onBookingChanged: onBookingChanged,
-                  ),
-                if (canCancel)
-                  _StatusButton(
-                    key: ValueKey('${booking.id}-cancelled'),
-                    label: 'Cancel',
-                    status: BookingStatus.cancelled,
-                    booking: booking,
-                    icon: Icons.cancel_outlined,
-                    onBookingChanged: onBookingChanged,
-                  ),
-                if (canComplete)
-                  _StatusButton(
-                    key: ValueKey('${booking.id}-completed'),
-                    label: 'Complete service',
-                    status: BookingStatus.completed,
-                    booking: booking,
-                    icon: Icons.check_circle_outline,
-                    isPrimary: true,
-                    onBookingChanged: onBookingChanged,
-                  ),
-                if (canRateCustomer)
-                  OutlinedButton.icon(
-                    key: ValueKey('rate-customer-${booking.id}'),
-                    onPressed: () => _showCustomerRatingDialog(context),
-                    icon: const Icon(Icons.star_outline_rounded),
-                    label: const Text('Rate customer'),
-                  ),
+                Expanded(
+                  child: action(BookingStatus.rejected, 'Reject', false),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: action(BookingStatus.confirmed, 'Accept', true),
+                ),
               ],
             )
-          else
-            Text(
-              bucket == SalonBookingBucket.history
-                  ? 'This booking is locked in history.'
-                  : 'No action needed right now.',
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: AppColors.muted,
-                fontWeight: FontWeight.w500,
+          else ...[
+            _SalonBookingTimeline(status: booking.status),
+            if (accepted && live) ...[
+              const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                child: action(
+                  BookingStatus.inProgress,
+                  'Start Service',
+                  false,
+                  enabled: canStart,
+                ),
               ),
+            ],
+            if (progress) ...[
+              const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                child: action(
+                  BookingStatus.completed,
+                  'Complete Service',
+                  true,
+                ),
+              ),
+            ],
+          ],
+          ExpansionTile(
+            tilePadding: EdgeInsets.zero,
+            childrenPadding: EdgeInsets.zero,
+            visualDensity: VisualDensity.compact,
+            title: const Text(
+              'Booking details',
+              style: TextStyle(fontSize: 12, color: AppColors.muted),
             ),
+            children: [
+              if (booking.isInstant && accepted)
+                Text(
+                  'Arrive by ${state.formatTime(booking.salonArrivalDeadline)}',
+                  style: const TextStyle(color: AppColors.primaryDark),
+                ),
+              if (booking.cancellationReason.isNotEmpty)
+                Text(booking.cancellationReason),
+              BookingExtraServices(booking: booking),
+              if (accepted && now.isBefore(end))
+                action(BookingStatus.cancelled, 'Cancel booking', false),
+              if (booking.status == BookingStatus.completed)
+                OutlinedButton.icon(
+                  key: ValueKey('rate-customer-${booking.id}'),
+                  onPressed: () => _showCustomerRatingDialog(context),
+                  icon: const Icon(Icons.star_outline_rounded),
+                  label: const Text('Rate customer'),
+                ),
+            ],
+          ),
         ],
       ),
     );
-  }
-
-  Color _statusColor(BookingStatus status) {
-    switch (status) {
-      case BookingStatus.pending:
-        return AppColors.amber;
-      case BookingStatus.confirmed:
-        return AppColors.goldDeep;
-      case BookingStatus.inProgress:
-        return AppColors.primary;
-      case BookingStatus.completed:
-        return AppColors.success;
-      case BookingStatus.cancelled:
-        return AppColors.coral;
-      case BookingStatus.rejected:
-        return AppColors.coral;
-    }
-  }
-
-  bool _isSameDay(DateTime first, DateTime second) {
-    return first.year == second.year &&
-        first.month == second.month &&
-        first.day == second.day;
   }
 
   Future<void> _showCustomerRatingDialog(BuildContext pageContext) async {
@@ -1486,7 +1026,7 @@ class _OwnerBookingCard extends StatelessWidget {
                         index <= rating
                             ? Icons.star_rounded
                             : Icons.star_outline_rounded,
-                        color: AppColors.amber,
+                        color: AppColors.primary,
                       ),
                       tooltip: '$index stars',
                     ),
@@ -1558,469 +1098,6 @@ class _OwnerBookingCard extends StatelessWidget {
   }
 }
 
-class _OwnerStaff extends StatelessWidget {
-  final Salon salon;
-
-  const _OwnerStaff({required this.salon});
-
-  @override
-  Widget build(BuildContext context) {
-    final appState = AppStateScope.watch(context);
-    final barbers = appState.barbersForSalon(salon.id);
-
-    return ListView(
-      physics: const AlwaysScrollableScrollPhysics(),
-      padding: const EdgeInsets.fromLTRB(18, 16, 18, 28),
-      children: [
-        Row(
-          children: [
-            Expanded(
-              child: FilledButton.icon(
-                onPressed: () => _showAddBarberDialog(context),
-                icon: const Icon(Icons.person_add_alt),
-                label: const Text('Add barber'),
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: OutlinedButton.icon(
-                onPressed: () {
-                  Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) => const SalonProfileSetupScreen(),
-                    ),
-                  );
-                },
-                icon: const Icon(Icons.edit_outlined),
-                label: const Text('Edit salon'),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 22),
-        const SectionHeader(title: 'Barber workload'),
-        const SizedBox(height: 10),
-        if (barbers.isEmpty)
-          const GlassCard(child: Text('No barbers have joined the team yet.'))
-        else
-          for (final barber in barbers) ...[
-            _BarberWorkloadCard(barber: barber),
-            const SizedBox(height: 10),
-          ],
-        const SizedBox(height: 18),
-        const SectionHeader(title: 'Team members'),
-        const SizedBox(height: 10),
-        if (barbers.isEmpty)
-          const GlassCard(
-            child: Text('Add your first barber to build the salon team.'),
-          )
-        else
-          for (final barber in barbers) ...[
-            _StaffCard(barber: barber),
-            const SizedBox(height: 10),
-          ],
-      ],
-    );
-  }
-
-  void _showAddBarberDialog(BuildContext context) {
-    showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      builder: (context) => const _AddBarberSheet(),
-    );
-  }
-}
-
-class _AddBarberSheet extends StatefulWidget {
-  final Barber? barber;
-
-  const _AddBarberSheet({this.barber});
-
-  @override
-  State<_AddBarberSheet> createState() => _AddBarberSheetState();
-}
-
-class _AddBarberSheetState extends State<_AddBarberSheet> {
-  final _formKey = GlobalKey<FormState>();
-  late final TextEditingController _nameController;
-  late final TextEditingController _phoneController;
-  late final TextEditingController _experienceController;
-  late final TextEditingController _resumeController;
-  final _serviceSearchController = TextEditingController();
-  final Set<String> _selectedServices = {};
-  late String _speciality;
-  String _serviceQuery = '';
-  bool _servicesExpanded = false;
-  bool _isSaving = false;
-  String? _saveError;
-
-  bool get _isEditing => widget.barber != null;
-
-  @override
-  void initState() {
-    super.initState();
-    final barber = widget.barber;
-    _nameController = TextEditingController(text: barber?.name ?? '');
-    _phoneController = TextEditingController(text: barber?.phone ?? '');
-    _experienceController = TextEditingController(
-      text: '${barber?.experienceYears ?? 2}',
-    );
-    _resumeController = TextEditingController(
-      text: barber?.resumeSummary ?? '',
-    );
-    _speciality = barber?.speciality.trim().isNotEmpty == true
-        ? barber!.speciality.trim()
-        : _barberSpecialities.first;
-    _selectedServices.addAll(barber?.serviceIds ?? const <String>[]);
-  }
-
-  @override
-  void dispose() {
-    _nameController.dispose();
-    _phoneController.dispose();
-    _experienceController.dispose();
-    _resumeController.dispose();
-    _serviceSearchController.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final appState = AppStateScope.watch(context);
-    final services = appState.ownerSalon.services;
-    final specialityServices = services
-        .where(
-          (service) => serviceMatchesBarberSpeciality(service, _speciality),
-        )
-        .toList();
-    final visibleServices = specialityServices.where((service) {
-      final query = _serviceQuery.trim().toLowerCase();
-      return query.isEmpty ||
-          service.name.toLowerCase().contains(query) ||
-          service.category.toLowerCase().contains(query);
-    }).toList();
-
-    return FractionallySizedBox(
-      heightFactor: 0.92,
-      child: Padding(
-        padding: EdgeInsets.only(
-          left: 18,
-          right: 18,
-          bottom: MediaQuery.viewInsetsOf(context).bottom + 12,
-        ),
-        child: Form(
-          key: _formKey,
-          child: Column(
-            children: [
-              const SizedBox(height: 10),
-              Container(
-                width: 38,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: AppColors.line,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-              const SizedBox(height: 14),
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      _isEditing ? 'Edit barber' : 'Add barber',
-                      style: Theme.of(context).textTheme.headlineSmall,
-                    ),
-                  ),
-                  IconButton(
-                    onPressed: () => Navigator.pop(context),
-                    icon: const Icon(Icons.close),
-                    tooltip: 'Close',
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Expanded(
-                child: ListView(
-                  children: [
-                    TextFormField(
-                      key: const ValueKey('barber-name-field'),
-                      controller: _nameController,
-                      decoration: const InputDecoration(labelText: 'Name'),
-                      validator: _required,
-                    ),
-                    const SizedBox(height: 10),
-                    TextFormField(
-                      key: const ValueKey('barber-phone-field'),
-                      controller: _phoneController,
-                      keyboardType: TextInputType.phone,
-                      decoration: const InputDecoration(
-                        labelText: 'Phone number (optional)',
-                      ),
-                      validator: _phone,
-                    ),
-                    const SizedBox(height: 10),
-                    DropdownButtonFormField<String>(
-                      initialValue: _speciality,
-                      isExpanded: true,
-                      decoration: const InputDecoration(
-                        labelText: 'Speciality',
-                      ),
-                      items: [
-                        for (final item in {
-                          _speciality,
-                          ..._barberSpecialities,
-                        })
-                          DropdownMenuItem(value: item, child: Text(item)),
-                      ],
-                      onChanged: (value) {
-                        if (value != null) {
-                          setState(() {
-                            _speciality = value;
-                            _selectedServices.removeWhere((serviceId) {
-                              final service = services
-                                  .where((item) => item.id == serviceId)
-                                  .firstOrNull;
-                              return service == null ||
-                                  !serviceMatchesBarberSpeciality(
-                                    service,
-                                    value,
-                                  );
-                            });
-                          });
-                        }
-                      },
-                    ),
-                    const SizedBox(height: 10),
-                    TextFormField(
-                      key: const ValueKey('barber-experience-field'),
-                      controller: _experienceController,
-                      keyboardType: TextInputType.number,
-                      validator: (value) {
-                        final years = int.tryParse(value ?? '');
-                        return years == null || years < 0 || years > 80
-                            ? 'Enter years of experience from 0 to 80'
-                            : null;
-                      },
-                      decoration: const InputDecoration(
-                        labelText: 'Years of experience',
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    TextFormField(
-                      key: const ValueKey('barber-resume-field'),
-                      controller: _resumeController,
-                      minLines: 2,
-                      maxLines: 3,
-                      decoration: const InputDecoration(
-                        labelText: 'Barber resume summary',
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    Container(
-                      decoration: BoxDecoration(
-                        border: Border.all(color: AppColors.line),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Column(
-                        children: [
-                          ListTile(
-                            title: const Text('Assigned services'),
-                            subtitle: Text(
-                              _selectedServices.isEmpty
-                                  ? 'All services by default'
-                                  : '${_selectedServices.length} selected',
-                            ),
-                            trailing: Icon(
-                              _servicesExpanded
-                                  ? Icons.expand_less
-                                  : Icons.expand_more,
-                            ),
-                            onTap: () => setState(
-                              () => _servicesExpanded = !_servicesExpanded,
-                            ),
-                          ),
-                          if (_servicesExpanded)
-                            Column(
-                              children: [
-                                Padding(
-                                  padding: const EdgeInsets.fromLTRB(
-                                    12,
-                                    8,
-                                    12,
-                                    4,
-                                  ),
-                                  child: TextField(
-                                    controller: _serviceSearchController,
-                                    onChanged: (value) =>
-                                        setState(() => _serviceQuery = value),
-                                    decoration: const InputDecoration(
-                                      labelText: 'Search services',
-                                      prefixIcon: Icon(Icons.search),
-                                    ),
-                                  ),
-                                ),
-                                ConstrainedBox(
-                                  constraints: const BoxConstraints(
-                                    maxHeight: 220,
-                                  ),
-                                  child: ListView.builder(
-                                    shrinkWrap: true,
-                                    itemCount: visibleServices.length,
-                                    itemBuilder: (context, index) {
-                                      final service = visibleServices[index];
-                                      return CheckboxListTile(
-                                        dense: true,
-                                        value: _selectedServices.contains(
-                                          service.id,
-                                        ),
-                                        title: Text(service.name),
-                                        subtitle: Text(service.category),
-                                        onChanged: (selected) {
-                                          setState(() {
-                                            if (selected == true) {
-                                              _selectedServices.add(service.id);
-                                            } else {
-                                              _selectedServices.remove(
-                                                service.id,
-                                              );
-                                            }
-                                          });
-                                        },
-                                      );
-                                    },
-                                  ),
-                                ),
-                              ],
-                            ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                  ],
-                ),
-              ),
-              if (_saveError != null) ...[
-                Text(
-                  _saveError!,
-                  key: const ValueKey('barber-save-error'),
-                  style: TextStyle(color: Theme.of(context).colorScheme.error),
-                ),
-                const SizedBox(height: 8),
-              ],
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton.icon(
-                  key: ValueKey(
-                    _isEditing ? 'save-barber-changes' : 'add-barber-submit',
-                  ),
-                  onPressed: _isSaving ? null : () => _save(appState),
-                  icon: _isSaving
-                      ? const SizedBox(
-                          height: 18,
-                          width: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : Icon(
-                          _isEditing
-                              ? Icons.save_outlined
-                              : Icons.person_add_alt,
-                        ),
-                  label: Text(
-                    _isSaving
-                        ? _isEditing
-                              ? 'Saving...'
-                              : 'Adding...'
-                        : _isEditing
-                        ? 'Save changes'
-                        : 'Add barber',
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  String? _required(String? value) {
-    return value == null || value.trim().isEmpty ? 'Required' : null;
-  }
-
-  String? _phone(String? value) {
-    final digits = (value ?? '').replaceAll(RegExp(r'\D'), '');
-    if (digits.isEmpty) {
-      return null;
-    }
-    final localDigits = digits.length == 12 && digits.startsWith('91')
-        ? digits.substring(2)
-        : digits;
-    return localDigits.length == 10 ? null : 'Enter a 10-digit phone number';
-  }
-
-  Future<void> _save(AppState appState) async {
-    if (!_formKey.currentState!.validate()) {
-      setState(
-        () => _saveError = 'Check the name and years of experience above.',
-      );
-      return;
-    }
-    setState(() {
-      _isSaving = true;
-      _saveError = null;
-    });
-    try {
-      final barber = widget.barber;
-      if (barber == null) {
-        await appState.addOwnerBarber(
-          name: _nameController.text,
-          phone: _phoneController.text,
-          speciality: _speciality,
-          experienceYears: int.tryParse(_experienceController.text) ?? 1,
-          resumeSummary: _resumeController.text,
-          serviceIds: _selectedServices.toList(),
-        );
-      } else {
-        await appState.updateOwnerBarber(
-          barberId: barber.id,
-          name: _nameController.text,
-          phone: _phoneController.text,
-          speciality: _speciality,
-          experienceYears: int.tryParse(_experienceController.text) ?? 1,
-          resumeSummary: _resumeController.text,
-          serviceIds: _selectedServices.toList(),
-        );
-      }
-      if (mounted) {
-        Navigator.pop(context);
-      }
-    } catch (error) {
-      if (mounted) {
-        setState(() {
-          _isSaving = false;
-          _saveError = friendlyErrorMessage(
-            error,
-            fallback: 'The barber details could not be saved. Try again.',
-          );
-        });
-      }
-    }
-  }
-}
-
-const _barberSpecialities = [
-  'Haircut specialist',
-  'Fade specialist',
-  'Beard and shave expert',
-  'Hair styling expert',
-  'Hair color specialist',
-  'Hair spa specialist',
-  'Skin and cleanup expert',
-  'Kids haircut specialist',
-  'All-round grooming expert',
-];
-
 class _JoinRequestCard extends StatefulWidget {
   final JoinRequest request;
 
@@ -2046,7 +1123,7 @@ class _JoinRequestCardState extends State<_JoinRequestCard> {
         : '${serviceNames.take(3).join(', ')}${serviceNames.length > 3 ? ' +${serviceNames.length - 3} more' : ''}';
 
     return GlassCard(
-      color: AppColors.champagne.withAlpha(55),
+      color: AppColors.primarySoft.withAlpha(55),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -2054,8 +1131,8 @@ class _JoinRequestCardState extends State<_JoinRequestCard> {
             children: [
               CircleAvatar(
                 radius: 26,
-                backgroundColor: AppColors.goldDeep.withAlpha(20),
-                foregroundColor: AppColors.goldDeep,
+                backgroundColor: AppColors.primaryDark.withAlpha(20),
+                foregroundColor: AppColors.primaryDark,
                 child: Text(
                   request.barberName.characters.first.toUpperCase(),
                   style: const TextStyle(
@@ -2084,7 +1161,7 @@ class _JoinRequestCardState extends State<_JoinRequestCard> {
               const AppPill(
                 icon: Icons.schedule,
                 label: 'Pending',
-                color: AppColors.amber,
+                color: AppColors.primary,
               ),
             ],
           ),
@@ -2199,178 +1276,12 @@ class _JoinRequestCardState extends State<_JoinRequestCard> {
   }
 }
 
-class _StaffCard extends StatelessWidget {
-  final Barber barber;
-
-  const _StaffCard({required this.barber});
-
-  @override
-  Widget build(BuildContext context) {
-    final appState = AppStateScope.watch(context);
-    final serviceNames = barber.serviceIds
-        .map((id) => appState.getService(barber.salonId, id)?.name)
-        .whereType<String>()
-        .join(', ');
-
-    return GlassCard(
-      child: Row(
-        children: [
-          CircleAvatar(
-            radius: 24,
-            backgroundColor: AppColors.mint,
-            foregroundColor: AppColors.primary,
-            child: Text(
-              barber.name.characters.first,
-              style: const TextStyle(fontWeight: FontWeight.w600),
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  barber.name,
-                  style: Theme.of(context).textTheme.titleMedium,
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  '${barber.experienceYears} yrs exp - ${serviceNames.isEmpty ? barber.speciality : serviceNames}',
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.bodyMedium,
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  barber.phone.isEmpty
-                      ? 'Staff profile'
-                      : 'Staff profile · ${barber.phone}',
-                  style: const TextStyle(
-                    color: AppColors.success,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          IconButton(
-            key: ValueKey('edit-barber-${barber.id}'),
-            onPressed: () => _showEditBarberDialog(context),
-            icon: const Icon(Icons.edit_outlined),
-            tooltip: 'Edit barber',
-          ),
-          IconButton(
-            onPressed: () => _confirmRemove(context, barber),
-            icon: const Icon(Icons.person_remove_outlined),
-            tooltip: 'Remove barber',
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showEditBarberDialog(BuildContext context) {
-    showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      builder: (context) => _AddBarberSheet(barber: barber),
-    );
-  }
-
-  void _confirmRemove(BuildContext context, Barber barber) {
-    showDialog<void>(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: Text('Remove ${barber.name}?'),
-          content: Text(
-            'This removes the barber from active staff and future slot availability.',
-            style: Theme.of(context).textTheme.bodyMedium,
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () async {
-                try {
-                  await AppStateScope.read(context).removeBarber(barber.id);
-                  if (context.mounted) {
-                    Navigator.pop(context);
-                  }
-                } catch (error) {
-                  if (!context.mounted) {
-                    return;
-                  }
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text(
-                        friendlyErrorMessage(
-                          error,
-                          fallback:
-                              'The barber could not be removed. Try again.',
-                        ),
-                      ),
-                    ),
-                  );
-                }
-              },
-              child: const Text('Remove'),
-            ),
-          ],
-        );
-      },
-    );
-  }
-}
-
-class _OwnerLoginGate extends StatefulWidget {
+class _OwnerLoginGate extends StatelessWidget {
   const _OwnerLoginGate();
 
   @override
-  State<_OwnerLoginGate> createState() => _OwnerLoginGateState();
-}
-
-class _OwnerLoginGateState extends State<_OwnerLoginGate> {
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(),
-      body: ListView(
-        padding: const EdgeInsets.fromLTRB(18, 6, 18, 28),
-        children: [
-          Text('Sign in', style: Theme.of(context).textTheme.headlineMedium),
-          const SizedBox(height: 4),
-          Text(
-            'Manage your salon, services, staff, timings, and bookings.',
-            style: Theme.of(context).textTheme.bodySmall,
-          ),
-          const SizedBox(height: 12),
-          OutlinedButton.icon(
-            key: const ValueKey('exit-salon-login'),
-            onPressed: () => Navigator.of(context).pushAndRemoveUntil(
-              MaterialPageRoute(builder: (_) => const CustomerHomeScreen()),
-              (_) => false,
-            ),
-            icon: const Icon(Icons.arrow_back_rounded),
-            label: const Text('Back to customer home'),
-          ),
-          const SizedBox(height: 16),
-          AuthLoginPanel(
-            role: UserRole.owner,
-            onLoggedIn: () {
-              Navigator.of(context).pushReplacement(
-                MaterialPageRoute(builder: (_) => const SalonDashboardScreen()),
-              );
-            },
-          ),
-        ],
-      ),
-    );
-  }
+  Widget build(BuildContext context) =>
+      const RoleSignInScreen(role: UserRole.owner);
 }
 
 /// Warns the owner when this phone will not ring for a booking request.
@@ -2451,7 +1362,7 @@ class _OwnerAlertReadinessBannerState extends State<_OwnerAlertReadinessBanner>
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
-            'Open Settings, find Pritze, and allow notifications and '
+            'Open Settings, find SalonFe, and allow notifications and '
             'background activity.',
           ),
         ),
@@ -2468,7 +1379,7 @@ class _OwnerAlertReadinessBannerState extends State<_OwnerAlertReadinessBanner>
     return Padding(
       padding: const EdgeInsets.only(bottom: 14),
       child: GlassCard(
-        color: readiness.isSilent ? AppColors.champagne : AppColors.mint,
+        color: readiness.isSilent ? AppColors.primarySoft : AppColors.mint,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -2531,9 +1442,9 @@ class _SalonApprovalBanner extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final pending = salon.isPendingApproval;
-    final color = pending ? AppColors.amber : AppColors.coral;
+    final color = pending ? AppColors.primary : AppColors.danger;
     return GlassCard(
-      color: pending ? AppColors.champagne : AppColors.mint,
+      color: pending ? AppColors.primarySoft : AppColors.mint,
       child: Row(
         children: [
           SoftIconBox(
@@ -2558,8 +1469,8 @@ class _SalonApprovalBanner extends StatelessWidget {
                 const SizedBox(height: 4),
                 Text(
                   pending
-                      ? 'Your salon is saved and waiting for Pritze approval. It is not visible to customers and cannot receive bookings yet.'
-                      : 'Your salon is not visible to customers. Please contact Pritze support if you need help with the review.',
+                      ? 'Your salon is saved and waiting for SalonFe approval. It is not visible to customers and cannot receive bookings yet.'
+                      : 'Your salon is not visible to customers. Please contact SalonFe support if you need help with the review.',
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                     color: AppColors.primaryDark,
                   ),
@@ -2611,7 +1522,7 @@ class _OwnerSetupBanner extends StatelessWidget {
                 onPressed: () => _openRemainingSetup(context, missingItems),
                 icon: const Icon(Icons.arrow_forward),
                 tooltip: opensTeam
-                    ? 'Complete team setup'
+                    ? 'Complete shop setup'
                     : 'Complete salon setup',
               ),
             ],
@@ -2631,39 +1542,17 @@ class _OwnerSetupBanner extends StatelessWidget {
     );
   }
 
-  bool _setupActionOpensTeam(List<String> missingItems) {
-    final normalized = missingItems
-        .map((item) => item.trim().toLowerCase())
-        .toList(growable: false);
-    final hasTeamWork = normalized.any(
-      (item) => item.contains('barber') || item.contains('team'),
-    );
-    final hasProfileWork = normalized.any(
-      (item) =>
-          item.contains('salon name') ||
-          item.contains('owner name') ||
-          item.contains('salon address') ||
-          item.contains('owner phone') ||
-          item.contains('owner email') ||
-          item.contains('opening') ||
-          item.contains('closing') ||
-          item == 'add at least one available service' ||
-          item.contains('save the salon profile'),
-    );
-    return hasTeamWork && !hasProfileWork;
-  }
+  bool _setupActionOpensTeam(List<String> missingItems) => true;
 
   void _openRemainingSetup(BuildContext context, List<String> missingItems) {
-    if (_setupActionOpensTeam(missingItems)) {
-      final tabController = DefaultTabController.maybeOf(context);
-      if (tabController != null) {
-        tabController.animateTo(2);
-        return;
-      }
+    final tabs = DefaultTabController.maybeOf(context);
+    if (tabs != null) {
+      tabs.animateTo(2);
+      return;
     }
-    Navigator.of(
-      context,
-    ).push(MaterialPageRoute(builder: (_) => const SalonProfileSetupScreen()));
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(builder: (_) => const SalonProfileSetupScreen()),
+    );
   }
 }
 
@@ -2699,436 +1588,6 @@ class _SetupCheckRow extends StatelessWidget {
     );
   }
 }
-
-class _SalonPromotionCreditCard extends StatefulWidget {
-  final String salonId;
-
-  const _SalonPromotionCreditCard({required this.salonId});
-
-  @override
-  State<_SalonPromotionCreditCard> createState() =>
-      _SalonPromotionCreditCardState();
-}
-
-class _SalonPromotionCreditCardState extends State<_SalonPromotionCreditCard> {
-  final _couponController = TextEditingController();
-  final _couponFocusNode = FocusNode();
-  bool _loading = false;
-  bool _couponSubmitting = false;
-  String _error = '';
-  String _couponMessage = '';
-  bool _couponSuccess = false;
-
-  @override
-  void dispose() {
-    _couponController.dispose();
-    _couponFocusNode.dispose();
-    super.dispose();
-  }
-
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _refresh());
-  }
-
-  Future<void> _refresh() async {
-    if (!mounted || _loading) return;
-    setState(() {
-      _loading = true;
-      _error = '';
-    });
-    try {
-      await AppStateScope.read(context).refreshSalonProinWallet(widget.salonId);
-    } catch (_) {
-      if (mounted) {
-        setState(
-          () =>
-              _error = 'Promotional credits could not be refreshed. Try again.',
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _loading = false);
-    }
-  }
-
-  Future<void> _claimCoupon() async {
-    if (_couponSubmitting) return;
-    final code = _couponController.text.trim();
-    if (code.isEmpty) {
-      _couponFocusNode.requestFocus();
-      setState(() {
-        _couponSuccess = false;
-        _couponMessage = 'Enter a salon coupon code.';
-      });
-      return;
-    }
-    setState(() {
-      _couponSubmitting = true;
-      _couponMessage = '';
-    });
-    try {
-      final result = await AppStateScope.read(
-        context,
-      ).claimSalonProinCoupon(salonId: widget.salonId, code: code);
-      if (!mounted) return;
-      _couponController.clear();
-      FocusManager.instance.primaryFocus?.unfocus();
-      final expiresAt = result.expiresAt;
-      final expiryText = expiresAt == null
-          ? ''
-          : ' Valid until ${_salonProinDate(expiresAt)}.';
-      setState(() {
-        _couponSuccess = true;
-        _couponMessage = result.alreadyClaimed
-            ? 'This coupon was already added to this salon.'
-            : '${result.amountProin} credits added to this salon.$expiryText';
-      });
-    } catch (error) {
-      if (!mounted) return;
-      setState(() {
-        _couponSuccess = false;
-        _couponMessage = friendlyErrorMessage(
-          error,
-          fallback: 'This salon coupon could not be applied. Try again.',
-        );
-      });
-    } finally {
-      if (mounted) {
-        setState(() => _couponSubmitting = false);
-      }
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final wallet = AppStateScope.watch(
-      context,
-    ).salonProinWallet(widget.salonId);
-    return GlassCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const SoftIconBox(
-                icon: Icons.toll_outlined,
-                color: AppColors.amber,
-                size: 42,
-              ),
-              const SizedBox(width: 12),
-              const Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Promotional credits',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    SizedBox(height: 2),
-                    Text(
-                      'Credits for eligible salon campaigns',
-                      style: TextStyle(color: AppColors.muted, fontSize: 12),
-                    ),
-                  ],
-                ),
-              ),
-              IconButton(
-                onPressed: _loading ? null : _refresh,
-                tooltip: 'Refresh promotional credits',
-                icon: _loading
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.refresh_rounded),
-              ),
-            ],
-          ),
-          const SizedBox(height: 15),
-          Row(
-            children: [
-              Expanded(
-                child: _SalonProinMetric(
-                  label: 'Balance',
-                  value: '${wallet.availableProin} credits',
-                  valueColor: wallet.availableProin < 0
-                      ? AppColors.coral
-                      : null,
-                ),
-              ),
-              const SizedBox(width: 9),
-              Expanded(
-                child: _SalonProinMetric(
-                  label: 'Can spend',
-                  value: '${wallet.effectiveSpendableProin} credits',
-                  valueColor: AppColors.success,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 9),
-          Row(
-            children: [
-              Expanded(
-                child: _SalonProinMetric(
-                  label: 'Credit line',
-                  value: '${wallet.creditLimitProin} credits',
-                ),
-              ),
-              const SizedBox(width: 9),
-              Expanded(
-                child: _SalonProinMetric(
-                  label: 'Reserved',
-                  value: '${wallet.reservedProin} credits',
-                ),
-              ),
-            ],
-          ),
-          if (wallet.isUsingCreditLine) ...[
-            const SizedBox(height: 10),
-            Container(
-              padding: const EdgeInsets.all(11),
-              decoration: BoxDecoration(
-                color: AppColors.coral.withValues(alpha: 0.08),
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(
-                  color: AppColors.coral.withValues(alpha: 0.22),
-                ),
-              ),
-              child: Row(
-                children: [
-                  const Icon(
-                    Icons.info_outline_rounded,
-                    color: AppColors.coral,
-                    size: 18,
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      'Using ${wallet.creditLineUsedProin} credits from the salon credit line.',
-                      style: const TextStyle(
-                        color: AppColors.coral,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-          const SizedBox(height: 14),
-          Container(
-            padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
-            decoration: BoxDecoration(
-              color: AppColors.canvas,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: AppColors.line),
-            ),
-            child: Row(
-              children: [
-                const Icon(
-                  Icons.confirmation_number_outlined,
-                  size: 20,
-                  color: AppColors.goldDeep,
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: TextField(
-                    key: const ValueKey('salon-proin-coupon-field'),
-                    controller: _couponController,
-                    focusNode: _couponFocusNode,
-                    enabled: !_couponSubmitting,
-                    textCapitalization: TextCapitalization.characters,
-                    textInputAction: TextInputAction.done,
-                    maxLength: 20,
-                    inputFormatters: [
-                      FilteringTextInputFormatter.allow(RegExp('[A-Za-z0-9]')),
-                      TextInputFormatter.withFunction((oldValue, newValue) {
-                        return newValue.copyWith(
-                          text: newValue.text.toUpperCase(),
-                          selection: TextSelection.collapsed(
-                            offset: newValue.text.length,
-                          ),
-                        );
-                      }),
-                    ],
-                    decoration: const InputDecoration(
-                      hintText: 'Enter salon coupon code',
-                      border: InputBorder.none,
-                      counterText: '',
-                      isDense: true,
-                    ),
-                    onSubmitted: (_) => _claimCoupon(),
-                  ),
-                ),
-                IconButton(
-                  key: const ValueKey('salon-proin-coupon-apply'),
-                  tooltip: 'Avail salon coupon',
-                  onPressed: _couponSubmitting ? null : _claimCoupon,
-                  icon: _couponSubmitting
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.arrow_forward_rounded),
-                ),
-              ],
-            ),
-          ),
-          if (_couponMessage.isNotEmpty) ...[
-            const SizedBox(height: 8),
-            Text(
-              _couponMessage,
-              style: TextStyle(
-                color: _couponSuccess ? AppColors.success : AppColors.coral,
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ],
-          if (wallet.expiringLots.isNotEmpty) ...[
-            const SizedBox(height: 14),
-            const Text(
-              'Upcoming expiries',
-              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
-            ),
-            const SizedBox(height: 7),
-            for (final lot in wallet.expiringLots.take(3))
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 3),
-                child: Row(
-                  children: [
-                    const Icon(
-                      Icons.schedule_outlined,
-                      size: 16,
-                      color: AppColors.amber,
-                    ),
-                    const SizedBox(width: 7),
-                    Expanded(
-                      child: Text(
-                        '${lot.amountProin} credits · ${_salonProinSourceLabel(lot.sourceType)}',
-                        style: const TextStyle(fontSize: 12),
-                      ),
-                    ),
-                    Text(
-                      _salonProinDate(lot.expiresAt),
-                      style: const TextStyle(
-                        color: AppColors.muted,
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-          ],
-          if (_error.isNotEmpty) ...[
-            const SizedBox(height: 10),
-            Text(
-              _error,
-              style: const TextStyle(color: AppColors.coral, fontSize: 12),
-            ),
-          ],
-          const SizedBox(height: 10),
-          const Text(
-            'Promotional credits fund eligible salon campaigns. If the balance is negative, the salon is using the approved credit line; new spending stops once the limit is reached.',
-            style: TextStyle(
-              color: AppColors.muted,
-              fontSize: 11,
-              height: 1.35,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _SalonPromotionalCreditsSheet extends StatelessWidget {
-  final String salonId;
-
-  const _SalonPromotionalCreditsSheet({required this.salonId});
-
-  @override
-  Widget build(BuildContext context) {
-    final appState = AppStateScope.watch(context);
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        _SalonPromotionCreditCard(salonId: salonId),
-        const SizedBox(height: 14),
-        _SalonEarningBreakdown(
-          serviceValue: appState.totalOriginalServiceValue(salonId),
-          customerCollection: appState.totalCustomerCounterCollection(salonId),
-          pritzeEarning: appState.totalPritzeEarnings(salonId),
-          discountSupport: appState.totalDiscountPritzeEarnings(salonId),
-          proinReimbursement: appState.totalProinReimbursements(salonId),
-          totalEarning: appState.totalCollection(salonId),
-        ),
-      ],
-    );
-  }
-}
-
-class _SalonProinMetric extends StatelessWidget {
-  final String label;
-  final String value;
-  final Color? valueColor;
-
-  const _SalonProinMetric({
-    required this.label,
-    required this.value,
-    this.valueColor,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: AppColors.canvas,
-        borderRadius: BorderRadius.circular(13),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            label,
-            style: const TextStyle(color: AppColors.muted, fontSize: 11),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            value,
-            style: TextStyle(
-              color: valueColor,
-              fontSize: 15,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-String _salonProinDate(DateTime date) =>
-    '${date.day.toString().padLeft(2, '0')}/'
-    '${date.month.toString().padLeft(2, '0')}/${date.year}';
-
-String _salonProinSourceLabel(String value) => switch (value.trim()) {
-  'coupon' => 'Coupon',
-  'referral_salon' => 'Salon referral',
-  'promotion' => 'Promotion',
-  'manual' => 'Support credit',
-  _ => 'Reward',
-};
 
 class _SalonEarningBreakdown extends StatelessWidget {
   final int serviceValue;
@@ -3178,7 +1637,7 @@ class _SalonEarningBreakdown extends StatelessWidget {
           ),
           const SizedBox(height: 9),
           _EarningLine(
-            label: 'Pritze earning',
+            label: 'SalonFe earning',
             amount: pritzeEarning,
             color: AppColors.success,
           ),
@@ -3793,7 +2252,6 @@ class _StatusButton extends StatefulWidget {
   final String label;
   final BookingStatus status;
   final Booking booking;
-  final IconData? icon;
   final bool isPrimary;
   final bool enabled;
   final VoidCallback? onBookingChanged;
@@ -3803,7 +2261,6 @@ class _StatusButton extends StatefulWidget {
     required this.label,
     required this.status,
     required this.booking,
-    this.icon,
     this.isPrimary = false,
     this.enabled = true,
     this.onBookingChanged,
@@ -3856,7 +2313,7 @@ class _StatusButtonState extends State<_StatusButton> {
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(
                         content: Text(
-                          'Service completed. ₹${widget.booking.salonTotalEarning} total earning added, including ₹${widget.booking.totalPritzeContribution} from Pritze.',
+                          'Service completed. ₹${widget.booking.salonTotalEarning} total earning added, including ₹${widget.booking.totalPritzeContribution} from SalonFe.',
                         ),
                       ),
                     );
@@ -3889,18 +2346,36 @@ class _StatusButtonState extends State<_StatusButton> {
             dimension: 18,
             child: CircularProgressIndicator(strokeWidth: 2),
           )
-        : Icon(widget.icon ?? Icons.arrow_forward);
+        : null;
     if (widget.isPrimary) {
-      return FilledButton.icon(
+      return FilledButton(
         onPressed: onPressed,
-        icon: actionIcon,
-        label: Text(actionLabel),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          mainAxisSize: MainAxisSize.min,
+          children: [?actionIcon, Text(actionLabel)],
+        ),
       );
     }
-    return OutlinedButton.icon(
+    return OutlinedButton(
       onPressed: onPressed,
-      icon: actionIcon,
-      label: Text(actionLabel),
+      style: OutlinedButton.styleFrom(
+        foregroundColor:
+            widget.status == BookingStatus.rejected ||
+                widget.status == BookingStatus.cancelled
+            ? AppColors.danger
+            : AppColors.ink,
+        side: BorderSide(
+          color: widget.status == BookingStatus.rejected
+              ? AppColors.line
+              : AppColors.primary,
+        ),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        mainAxisSize: MainAxisSize.min,
+        children: [?actionIcon, Text(actionLabel)],
+      ),
     );
   }
 
@@ -3922,7 +2397,7 @@ class _SalonLoadFailed extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Salon dashboard')),
+      appBar: SalonFeAppBar(title: const Text('Salon dashboard')),
       body: Center(
         child: Padding(
           padding: const EdgeInsets.all(24),
@@ -3955,4 +2430,92 @@ class _SalonLoadFailed extends StatelessWidget {
       ),
     );
   }
+}
+
+class _SalonBookingTimeline extends StatelessWidget {
+  final BookingStatus status;
+  const _SalonBookingTimeline({required this.status});
+  @override
+  Widget build(BuildContext context) {
+    final step = switch (status) {
+      BookingStatus.confirmed => 2,
+      BookingStatus.inProgress => 3,
+      BookingStatus.completed => 4,
+      _ => 1,
+    };
+    final color = status == BookingStatus.inProgress
+        ? AppColors.primary
+        : AppColors.success;
+    const labels = ['Booked', 'Accepted', 'Started', 'Done'];
+    return Row(
+      children: [
+        for (var i = 0; i < 4; i++)
+          Expanded(
+            child: Padding(
+              padding: EdgeInsets.only(right: i == 3 ? 0 : 3),
+              child: Column(
+                children: [
+                  Container(
+                    height: 5,
+                    decoration: BoxDecoration(
+                      color: i < step ? color : AppColors.line,
+                      borderRadius: BorderRadius.circular(5),
+                    ),
+                  ),
+                  const SizedBox(height: 7),
+                  Text(
+                    labels[i],
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: i < step ? color : AppColors.muted,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+bool _isSameDay(DateTime a, DateTime b) =>
+    a.year == b.year && a.month == b.month && a.day == b.day;
+
+class _BookingStatusPill extends StatelessWidget {
+  final String label;
+  final Color color;
+  final bool accepted;
+  const _BookingStatusPill({
+    required this.label,
+    required this.color,
+    this.accepted = false,
+  });
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+    decoration: BoxDecoration(
+      color: color.withAlpha(22),
+      borderRadius: BorderRadius.circular(24),
+    ),
+    child: Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (accepted) ...[
+          Icon(Icons.check, size: 17, color: color),
+          const SizedBox(width: 5),
+        ],
+        Flexible(
+          child: Text(
+            label,
+            style: TextStyle(
+              color: color,
+              fontWeight: FontWeight.w600,
+              fontSize: 14,
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
 }

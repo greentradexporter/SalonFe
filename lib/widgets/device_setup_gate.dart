@@ -4,7 +4,9 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../widgets/brand_header.dart';
 import '../services/owner_alert_readiness.dart';
+import '../state/app_state_scope.dart';
 import '../theme/app_theme.dart';
 
 /// Preference key for "this install has already been walked through setup".
@@ -55,8 +57,30 @@ class _DeviceSetupGateState extends State<DeviceSetupGate> {
     WidgetsBinding.instance.addPostFrameCallback((_) => unawaited(_maybeRun()));
   }
 
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final state = AppStateScope.watch(context);
+    if (!_started &&
+        !state.isRestoringSession &&
+        state.hasActiveOwnerSession &&
+        !state.referralOnboardingRequired) {
+      WidgetsBinding.instance.addPostFrameCallback(
+        (_) => unawaited(_maybeRun()),
+      );
+    }
+  }
+
   Future<void> _maybeRun() async {
-    if (_started) return;
+    if (!mounted || _started) return;
+    final state = AppStateScope.read(context);
+    // Keep signed-out launches on the welcome screen. This walkthrough is
+    // specific to owner booking alerts, so it starts only in an owner session.
+    if (state.isRestoringSession ||
+        !state.hasActiveOwnerSession ||
+        state.referralOnboardingRequired) {
+      return;
+    }
     _started = true;
     try {
       final preferences = await SharedPreferences.getInstance();
@@ -82,6 +106,12 @@ class _DeviceSetupGateState extends State<DeviceSetupGate> {
       }
       final navigator = widget.navigatorKey.currentState;
       if (navigator == null || !navigator.mounted) return;
+      if (!mounted) return;
+      final latestState = AppStateScope.read(context);
+      if (!latestState.hasActiveOwnerSession ||
+          latestState.referralOnboardingRequired) {
+        return;
+      }
       await navigator.push(
         MaterialPageRoute<void>(
           builder: (_) => const DeviceSetupScreen(),
@@ -172,7 +202,9 @@ class _DeviceSetupScreenState extends State<DeviceSetupScreen>
     if (!opened && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Open Settings, find Pritze, and allow notifications.'),
+          content: Text(
+            'Open Settings, find SalonFe, and allow notifications.',
+          ),
         ),
       );
     }
@@ -182,7 +214,7 @@ class _DeviceSetupScreenState extends State<DeviceSetupScreen>
   Widget build(BuildContext context) {
     final done = !_loading && _blockers.isEmpty;
     return Scaffold(
-      appBar: AppBar(
+      appBar: SalonFeAppBar(
         title: const Text('Set up alerts'),
         actions: [
           TextButton(
@@ -223,9 +255,7 @@ class _DeviceSetupScreenState extends State<DeviceSetupScreen>
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Expanded(
-                        child: Text(ownerAlertBlockerMessage(blocker)),
-                      ),
+                      Expanded(child: Text(ownerAlertBlockerMessage(blocker))),
                       const SizedBox(width: 8),
                       FilledButton(
                         key: ValueKey('setup-fix-${blocker.name}'),

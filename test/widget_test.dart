@@ -7,9 +7,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:nashik_salon_booking/main.dart';
+import 'package:nashik_salon_booking/screens/entry/welcome_screen.dart';
 import 'package:nashik_salon_booking/widgets/booking_extra_services.dart';
 import 'package:nashik_salon_booking/widgets/owner_phone_login_dialog.dart';
 import 'package:nashik_salon_booking/models/app_models.dart';
+import 'package:nashik_salon_booking/theme/app_theme.dart';
 import 'package:nashik_salon_booking/models/service_catalog.dart';
 import 'package:nashik_salon_booking/screens/barber/barber_dashboard_screen.dart';
 import 'package:nashik_salon_booking/screens/customer/customer_home_screen.dart';
@@ -1331,7 +1333,7 @@ void main() {
     tester,
   ) async {
     PackageInfo.setMockInitialValues(
-      appName: 'Pritze',
+      appName: 'SalonFe',
       packageName: 'com.trimtime.app',
       version: '1.0.17',
       buildNumber: '30',
@@ -1610,10 +1612,14 @@ void main() {
   });
 
   testWidgets('opens to empty customer salon discovery', (tester) async {
-    await tester.pumpWidget(const AppStateProvider(child: TrimtimeApp()));
+    final state = AppState();
+    await _loginCustomer(state);
+    await tester.pumpWidget(
+      AppStateProvider(createAppState: () => state, child: const TrimtimeApp()),
+    );
 
-    expect(find.text('Current location'), findsOneWidget);
-    expect(find.text('Chembur'), findsOneWidget);
+    expect(find.text('Current location'), findsNothing);
+    expect(find.text('Chembur'), findsNothing);
     await tester.drag(find.byType(Scrollable).first, const Offset(0, -350));
     await tester.pumpAndSettle();
     expect(find.text('No salons found'), findsOneWidget);
@@ -1621,12 +1627,13 @@ void main() {
   });
 
   testWidgets('customer search box accepts typing', (tester) async {
-    await tester.pumpWidget(const AppStateProvider(child: TrimtimeApp()));
-
-    final searchBox = find.widgetWithText(
-      TextField,
-      'Search salon, service, area',
+    final state = AppState();
+    await _loginCustomer(state);
+    await tester.pumpWidget(
+      AppStateProvider(createAppState: () => state, child: const TrimtimeApp()),
     );
+
+    final searchBox = find.widgetWithText(TextField, 'Search salon or service');
     expect(searchBox, findsOneWidget);
 
     await tester.enterText(searchBox, 'beard');
@@ -1669,12 +1676,82 @@ void main() {
     expect(find.text('Schedule Slot'), findsOneWidget);
   });
 
+  testWidgets(
+    'customer homepage keeps large photos and hides location and service summaries on a small screen',
+    (tester) async {
+      await tester.binding.setSurfaceSize(const Size(320, 760));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      final state = await _stateWithSalonService(signOut: false);
+      await state.addOwnerService(
+        name: 'Haircut Men',
+        category: 'Hair',
+        price: 250,
+        durationMinutes: 30,
+      );
+      await state.addOwnerService(
+        name: 'Haircut Women',
+        category: 'Hair',
+        price: 350,
+        durationMinutes: 45,
+      );
+      final salon = state.ownerSalon;
+      await state.signOutActiveUser();
+      await tester.pumpWidget(
+        AppStateProvider(
+          createAppState: () => state,
+          child: MaterialApp(
+            theme: AppTheme.build(),
+            builder: (context, child) => MediaQuery(
+              data: MediaQuery.of(
+                context,
+              ).copyWith(textScaler: const TextScaler.linear(1.3)),
+              child: child!,
+            ),
+            home: const CustomerHomeScreen(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      expect(find.text('Current location'), findsNothing);
+      expect(find.text(salon.address), findsNothing);
+      expect(find.textContaining('Haircut Men'), findsNothing);
+      expect(find.textContaining('Haircut Women'), findsNothing);
+      final photo = find.byKey(ValueKey('salon-card-image-${salon.id}'));
+      await tester.scrollUntilVisible(
+        photo,
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
+      expect(tester.getSize(photo).height, greaterThan(100));
+      expect(tester.getSize(photo).width, greaterThan(100));
+      expect(
+        state
+            .getSalon(salon.id)
+            ?.services
+            .any((service) => service.name == 'Haircut Men'),
+        isTrue,
+      );
+      await tester.scrollUntilVisible(
+        find.text('Schedule Slot'),
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
+      expect(find.text('Book instantly'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
   testWidgets('customer service categories scroll horizontally', (
     tester,
   ) async {
     await tester.binding.setSurfaceSize(const Size(390, 844));
     addTearDown(() => tester.binding.setSurfaceSize(null));
-    await tester.pumpWidget(const AppStateProvider(child: TrimtimeApp()));
+    final state = AppState();
+    await _loginCustomer(state);
+    await tester.pumpWidget(
+      AppStateProvider(createAppState: () => state, child: const TrimtimeApp()),
+    );
 
     final categoryList = find.byKey(const Key('service-category-list'));
     expect(categoryList, findsOneWidget);
@@ -1758,36 +1835,44 @@ void main() {
 
       expect(find.text('2 services selected'), findsOneWidget);
       expect(find.text('Complete Salon'), findsOneWidget);
-      expect(find.text('College Road, Nashik'), findsOneWidget);
+      expect(find.text('College Road, Nashik'), findsNothing);
       expect(find.text('Hair Only Salon'), findsNothing);
       expect(find.text('Nearby'), findsNothing);
     },
   );
 
-  testWidgets('iOS home uses Chembur and readable horizontal services', (
-    tester,
-  ) async {
-    debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
-    addTearDown(() => debugDefaultTargetPlatformOverride = null);
-    await tester.binding.setSurfaceSize(const Size(390, 844));
-    addTearDown(() => tester.binding.setSurfaceSize(null));
+  testWidgets(
+    'iOS home hides location and keeps readable horizontal services',
+    (tester) async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+      await tester.binding.setSurfaceSize(const Size(390, 844));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
 
-    await tester.pumpWidget(const AppStateProvider(child: TrimtimeApp()));
+      final state = AppState();
+      await _loginCustomer(state);
+      await tester.pumpWidget(
+        AppStateProvider(
+          createAppState: () => state,
+          child: const TrimtimeApp(),
+        ),
+      );
 
-    expect(find.text('Chembur'), findsOneWidget);
-    final categoryList = find.byKey(const Key('service-category-list'));
-    expect(categoryList, findsOneWidget);
-    expect(
-      tester.widget<ListView>(categoryList).scrollDirection,
-      Axis.horizontal,
-    );
-    expect(tester.widget<Text>(find.text('Haircut')).style?.fontSize, 13);
+      expect(find.text('Chembur'), findsNothing);
+      final categoryList = find.byKey(const Key('service-category-list'));
+      expect(categoryList, findsOneWidget);
+      expect(
+        tester.widget<ListView>(categoryList).scrollDirection,
+        Axis.horizontal,
+      );
+      expect(tester.widget<Text>(find.text('Haircut')).style?.fontSize, 13);
 
-    await tester.drag(categoryList, const Offset(-650, 0));
-    await tester.pumpAndSettle();
-    expect(find.text('Makeup'), findsOneWidget);
-    debugDefaultTargetPlatformOverride = null;
-  });
+      await tester.drag(categoryList, const Offset(-650, 0));
+      await tester.pumpAndSettle();
+      expect(find.text('Makeup'), findsOneWidget);
+      debugDefaultTargetPlatformOverride = null;
+    },
+  );
 
   testWidgets('customer home actions fit a narrow iPhone-sized screen', (
     tester,
@@ -1813,6 +1898,7 @@ void main() {
       serviceIds: [service.id],
     );
     await state.signOutActiveUser();
+    await _loginCustomer(state);
 
     await tester.pumpWidget(
       AppStateProvider(createAppState: () => state, child: const TrimtimeApp()),
@@ -2255,39 +2341,37 @@ void main() {
     expect(find.text('Open now'), findsOneWidget);
   });
 
-  testWidgets('owner account menu offers phone login when it is not set up', (
-    tester,
-  ) async {
-    final state = await _stateWithSalonService(signOut: false);
-    await state.updateOwnerSalon(
-      name: state.ownerSalon.name,
-      ownerName: state.ownerSalon.ownerName,
-      address: state.ownerSalon.address,
-      phone: '9876500011',
-      openTime: state.ownerSalon.openTime,
-      closeTime: state.ownerSalon.closeTime,
-    );
+  testWidgets(
+    'owner account menu removes phone login without changing login credentials',
+    (tester) async {
+      final state = await _stateWithSalonService(signOut: false);
+      await state.updateOwnerSalon(
+        name: state.ownerSalon.name,
+        ownerName: state.ownerSalon.ownerName,
+        address: state.ownerSalon.address,
+        phone: '9876500011',
+        openTime: state.ownerSalon.openTime,
+        closeTime: state.ownerSalon.closeTime,
+      );
 
-    await tester.pumpWidget(
-      AppStateProvider(
-        createAppState: () => state,
-        child: const MaterialApp(
-          home: Scaffold(
-            body: AccountOverflowMenu(role: UserRole.owner, canLogout: true),
+      await tester.pumpWidget(
+        AppStateProvider(
+          createAppState: () => state,
+          child: const MaterialApp(
+            home: Scaffold(
+              body: AccountOverflowMenu(role: UserRole.owner, canLogout: true),
+            ),
           ),
         ),
-      ),
-    );
-    await tester.pumpAndSettle();
-    await tester.tap(find.byType(AccountOverflowMenu));
-    await tester.pumpAndSettle();
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byType(AccountOverflowMenu));
+      await tester.pumpAndSettle();
 
-    // Discoverable from the account menu rather than only as a prompt during
-    // onboarding, which owners dismissed and could never find again.
-    expect(find.text('Phone login'), findsOneWidget);
-    expect(find.textContaining('verify'), findsOneWidget);
-    expect(find.textContaining('+919876500011'), findsOneWidget);
-  });
+      expect(find.text('Phone login'), findsNothing);
+      expect(find.text('Notifications'), findsOneWidget);
+    },
+  );
 
   test('a turned-away customer can book from an hour out', () async {
     final state = await _stateWithSalonService(signOut: false);
@@ -2553,12 +2637,14 @@ void main() {
 
     expect(find.text('Chair board'), findsNothing);
 
-    await tester.tap(find.text('Team'));
+    await tester.tap(find.text('Shop'));
     await tester.pumpAndSettle();
 
     expect(find.text('Join requests'), findsNothing);
     expect(find.text('No pending requests right now.'), findsNothing);
-    expect(find.text('Team members'), findsOneWidget);
+    expect(find.text('Shop details'), findsOneWidget);
+    expect(find.text('Owner email address'), findsNothing);
+    expect(find.byTooltip('Edit salon'), findsNothing);
   });
 
   testWidgets('Add barber opens the form and saves a new team member', (
@@ -2572,8 +2658,18 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Team'));
+    await tester.tap(find.text('Shop'));
     await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('shop-add-barber')),
+      350,
+      scrollable: find
+          .descendant(
+            of: find.byType(SalonProfileSetupScreen),
+            matching: find.byType(Scrollable),
+          )
+          .first,
+    );
     await tester.tap(find.widgetWithText(FilledButton, 'Add barber'));
     await tester.pumpAndSettle();
     await tester.enterText(
@@ -2604,8 +2700,18 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Team'));
+      await tester.tap(find.text('Shop'));
       await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(
+        find.byKey(const ValueKey('shop-add-barber')),
+        350,
+        scrollable: find
+            .descendant(
+              of: find.byType(SalonProfileSetupScreen),
+              matching: find.byType(Scrollable),
+            )
+            .first,
+      );
       await tester.tap(find.widgetWithText(FilledButton, 'Add barber'));
       await tester.pumpAndSettle();
       await tester.enterText(
@@ -2683,8 +2789,18 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Team'));
+    await tester.tap(find.text('Shop'));
     await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.byKey(ValueKey('edit-barber-${barber.id}')),
+      350,
+      scrollable: find
+          .descendant(
+            of: find.byType(SalonProfileSetupScreen),
+            matching: find.byType(Scrollable),
+          )
+          .first,
+    );
     await tester.tap(find.byKey(ValueKey('edit-barber-${barber.id}')));
     await tester.pumpAndSettle();
 
@@ -3182,6 +3298,7 @@ void main() {
       serviceIds: [state.ownerSalon.services.first.id],
     );
     await state.signOutActiveUser();
+    await _loginCustomer(state);
 
     await tester.pumpWidget(
       AppStateProvider(createAppState: () => state, child: const TrimtimeApp()),
@@ -3317,7 +3434,7 @@ void main() {
       ),
     );
 
-    expect(find.text('Opening Pritze'), findsOneWidget);
+    expect(find.text('Opening SalonFe'), findsOneWidget);
     expect(find.text('Book your next visit'), findsNothing);
     expect(find.byType(SalonDashboardScreen), findsNothing);
   });
@@ -3640,7 +3757,7 @@ void main() {
     await tester.tap(find.text('Bookings'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Ordered service: Haircut'), findsOneWidget);
+    expect(find.text('Haircut · Ravi'), findsOneWidget);
     expect(find.text('Ordered service: Premium Haircut'), findsNothing);
   });
 
@@ -4866,6 +4983,7 @@ void main() {
     );
     await state.signOutActiveUser();
     state.resetSlotQueryCount();
+    await _loginCustomer(state);
 
     await tester.pumpWidget(
       AppStateProvider(createAppState: () => state, child: const TrimtimeApp()),
@@ -4955,7 +5073,7 @@ void main() {
       expect(state.ownerSalonOrNull, isNull);
       expect(state.ownerSalon.services, hasLength(30));
       expect(find.byType(SalonProfileSetupScreen), findsOneWidget);
-      expect(find.text('Overview'), findsNothing);
+      expect(find.text('Home'), findsNothing);
       await tester.scrollUntilVisible(
         find.byKey(const ValueKey('salon-registration-name-field')),
         -500,
@@ -5920,7 +6038,7 @@ void main() {
 
     await tester.tap(find.text('New scheduled booking'));
     await tester.pumpAndSettle();
-    expect(find.text('Booking desk'), findsOneWidget);
+    expect(find.text('All Bookings'), findsOneWidget);
   });
 
   testWidgets('owner instant notification opens the Requests booking bucket', (
@@ -5964,8 +6082,8 @@ void main() {
     await tester.tap(find.text('New instant booking request'));
     await tester.pumpAndSettle();
 
-    expect(find.widgetWithText(ChoiceChip, 'Requests (1)'), findsOneWidget);
-    expect(find.text('Accept booking'), findsOneWidget);
+    expect(find.text('Needs Action'), findsOneWidget);
+    expect(find.text('Accept'), findsOneWidget);
     expect(find.text('Reject'), findsOneWidget);
   });
 
@@ -6123,31 +6241,31 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.widgetWithText(ChoiceChip, 'Requests (1)'), findsOneWidget);
-    expect(find.text('Accept booking'), findsOneWidget);
+    expect(find.text('Needs Action'), findsOneWidget);
+    expect(find.text('Accept'), findsOneWidget);
     expect(find.text('Reject'), findsOneWidget);
-    expect(find.text('Any available barber'), findsOneWidget);
+    expect(find.textContaining('Haircut ·'), findsOneWidget);
 
-    await tester.ensureVisible(find.text('Accept booking'));
+    await tester.ensureVisible(find.text('Accept'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Accept booking'));
+    await tester.tap(find.text('Accept'));
     await tester.pump();
     final accepted = state.bookings.singleWhere(
       (item) => item.id == booking.id,
     );
     expect(accepted.status, BookingStatus.confirmed);
     expect(accepted.barberId, isNotEmpty);
-    expect(find.text('Accept booking'), findsNothing);
+    expect(find.text('Accept'), findsNothing);
     expect(
       find.byKey(const ValueKey('booking-arrival-bottom-panel-salon')),
       findsNothing,
     );
 
-    await tester.tap(find.widgetWithText(Tab, 'Overview'));
+    await tester.tap(find.widgetWithText(Tab, 'Home'));
     await tester.pumpAndSettle();
     expect(
       find.byKey(const ValueKey('booking-arrival-bottom-panel-salon')),
-      findsOneWidget,
+      findsNothing,
     );
     await tester.tap(find.widgetWithText(Tab, 'Bookings'));
     await tester.pumpAndSettle();
@@ -6157,18 +6275,18 @@ void main() {
     );
 
     await tester.pumpAndSettle();
-    expect(find.text('Start service'), findsOneWidget);
+    expect(find.text('Start Service'), findsOneWidget);
 
-    await tester.ensureVisible(find.text('Start service'));
+    await tester.ensureVisible(find.text('Start Service'));
     await tester.drag(find.byType(ListView).last, const Offset(0, -220));
     await tester.pump();
-    await tester.tap(find.text('Start service'));
+    await tester.tap(find.text('Start Service'));
     await tester.pump();
     expect(find.text('Starting...'), findsNothing);
-    expect(find.text('Complete service'), findsOneWidget);
+    expect(find.text('Complete Service'), findsOneWidget);
     expect(state.totalCollection(salonId), 0);
 
-    await tester.tap(find.text('Complete service'));
+    await tester.tap(find.text('Complete Service'));
     await tester.pump();
     final completed = state.bookings.singleWhere(
       (item) => item.id == booking.id,
@@ -6334,7 +6452,9 @@ void main() {
     },
   );
 
-  testWidgets('partner hub hides the public barber login path', (tester) async {
+  testWidgets('partner entry opens owner login without customer navigation', (
+    tester,
+  ) async {
     final state = AppState();
     await tester.pumpWidget(
       AppStateProvider(
@@ -6343,7 +6463,8 @@ void main() {
       ),
     );
 
-    expect(find.text('Salon owner'), findsOneWidget);
+    expect(find.text('Salon partner sign in'), findsOneWidget);
+    expect(find.text('Discover'), findsNothing);
     expect(find.text('Barber'), findsNothing);
     expect(find.text('Open barber tools'), findsNothing);
     expect(find.text('Barber login'), findsNothing);
@@ -6415,25 +6536,29 @@ void main() {
     );
     await tester.tap(find.widgetWithText(FilledButton, 'Continue'));
     await tester.pumpAndSettle();
+    await tester.pump(const Duration(seconds: 4));
+    await tester.pumpAndSettle();
     await tester.enterText(
       find.byKey(const ValueKey('email-otp-field')),
       '123456',
+    );
+    await tester.ensureVisible(
+      find.widgetWithText(FilledButton, 'Verify and sign in'),
     );
     await tester.tap(find.widgetWithText(FilledButton, 'Verify and sign in'));
     await tester.pumpAndSettle();
 
     expect(find.byType(SalonProfileSetupScreen), findsNothing);
     expect(find.text(state.ownerSalon.name), findsOneWidget);
-    expect(find.text('Overview'), findsOneWidget);
+    expect(find.text('Home'), findsOneWidget);
     expect(find.text('Bookings'), findsOneWidget);
-    expect(find.text('Team'), findsOneWidget);
+    expect(find.text('Shop'), findsOneWidget);
   });
 
-  testWidgets('owner promotional credits live in menu, not overview', (
+  testWidgets('owner menu exposes only the new Balance accounting', (
     tester,
   ) async {
     final state = await _stateWithSalonService(signOut: false);
-
     await tester.pumpWidget(
       AppStateProvider(
         createAppState: () => state,
@@ -6441,27 +6566,43 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-
-    expect(find.text('Overview'), findsOneWidget);
-    expect(find.text('Salon promotional Proin'), findsNothing);
-    expect(find.text('Promotional credits'), findsNothing);
-    expect(find.text('Earning breakdown'), findsNothing);
-
+    expect(find.text('Home'), findsOneWidget);
+    expect(find.text('Total earnings'), findsOneWidget);
+    expect(find.text('Today’s earnings'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.text('Top services'),
+      300,
+      scrollable: find
+          .descendant(
+            of: find.byType(ListView).first,
+            matching: find.byType(Scrollable),
+          )
+          .first,
+    );
+    expect(find.text('Top services'), findsOneWidget);
     await tester.tap(find.byTooltip('Account menu'));
     await tester.pumpAndSettle();
-
-    expect(find.text('Revenue details'), findsOneWidget);
-    expect(find.text('Promotional credits'), findsOneWidget);
-
-    await tester.tap(find.text('Promotional credits'));
+    expect(find.text('Revenue details'), findsNothing);
+    expect(find.text('Promotional credits'), findsNothing);
+    expect(find.text('Phone login'), findsNothing);
+    await tester.tap(find.text('Balance'));
     await tester.pumpAndSettle();
-
-    expect(find.text('Promotional credits'), findsOneWidget);
-    expect(find.text('Earning breakdown'), findsOneWidget);
-    expect(find.textContaining('credits'), findsWidgets);
+    for (final label in [
+      'Deposit amount',
+      'Discount',
+      'Balance',
+      'SalonFe earning',
+    ]) {
+      expect(
+        find.text(label),
+        label == 'Balance' ? findsNWidgets(2) : findsOneWidget,
+      );
+    }
+    expect(find.text('₹0'), findsNWidgets(4));
+    expect(find.text('Credit line'), findsNothing);
   });
 
-  testWidgets('owner revenue details open from menu with period breakdowns', (
+  testWidgets('legacy revenue report retains period breakdowns', (
     tester,
   ) async {
     final state = await _stateWithSalonService(signOut: false);
@@ -6486,14 +6627,9 @@ void main() {
     await tester.pumpWidget(
       AppStateProvider(
         createAppState: () => state,
-        child: const MaterialApp(home: SalonDashboardScreen()),
+        child: MaterialApp(home: SalonRevenueDetailsScreen(salonId: salonId)),
       ),
     );
-    await tester.pumpAndSettle();
-
-    await tester.tap(find.byTooltip('Account menu'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Revenue details'));
     await tester.pumpAndSettle();
 
     expect(find.byType(SalonRevenueDetailsScreen), findsOneWidget);
@@ -6519,37 +6655,18 @@ void main() {
     expect(find.text('Discount and Proin impact'), findsOneWidget);
   });
 
-  testWidgets('salon can avail a promotional coupon from the menu', (
-    tester,
-  ) async {
-    final state = await _stateWithSalonService(signOut: false);
-
-    await tester.pumpWidget(
-      AppStateProvider(
-        createAppState: () => state,
-        child: const MaterialApp(home: SalonDashboardScreen()),
-      ),
-    );
-    await tester.pumpAndSettle();
-
-    await tester.tap(find.byTooltip('Account menu'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Promotional credits'));
-    await tester.pumpAndSettle();
-
-    await tester.enterText(
-      find.byKey(const ValueKey('salon-proin-coupon-field')),
-      'salon100',
-    );
-    await tester.tap(find.byKey(const ValueKey('salon-proin-coupon-apply')));
-    await tester.pumpAndSettle();
-
-    expect(
-      find.textContaining('100 credits added to this salon'),
-      findsOneWidget,
-    );
-    expect(state.salonProinWallet(state.ownerSalon.id).availableProin, 100);
-  });
+  test(
+    'legacy salon promotional coupons remain available to existing clients',
+    () async {
+      final state = await _stateWithSalonService(signOut: false);
+      final result = await state.claimSalonProinCoupon(
+        salonId: state.ownerSalonId,
+        code: 'salon100',
+      );
+      expect(result, isNotNull);
+      expect(state.salonProinWallet(state.ownerSalon.id).availableProin, 100);
+    },
+  );
 
   testWidgets('missing team setup opens the team page from overview', (
     tester,
@@ -6575,12 +6692,8 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('complete-salon-setup-action')));
     await tester.pumpAndSettle();
 
-    expect(find.byType(SalonProfileSetupScreen), findsNothing);
-    expect(find.text('No barbers have joined the team yet.'), findsOneWidget);
-    expect(
-      find.text('Add your first barber to build the salon team.'),
-      findsOneWidget,
-    );
+    expect(find.byType(SalonProfileSetupScreen), findsOneWidget);
+    expect(find.text('Shop details'), findsOneWidget);
   });
 
   testWidgets('new salon owner must register a shop before overview', (
@@ -6602,10 +6715,10 @@ void main() {
 
     expect(find.byType(SalonProfileSetupScreen), findsOneWidget);
     expect(find.text('Shop registration'), findsOneWidget);
-    expect(find.text('Overview'), findsNothing);
+    expect(find.text('Home'), findsNothing);
   });
 
-  testWidgets('new salon owner can leave onboarding for customer home', (
+  testWidgets('new salon owner can sign out of onboarding to welcome', (
     tester,
   ) async {
     final state = AppState();
@@ -6628,7 +6741,8 @@ void main() {
 
     expect(state.ownerAccount, isNull);
     expect(state.activeRole, isNull);
-    expect(find.byType(CustomerHomeScreen), findsOneWidget);
+    expect(find.byType(WelcomeScreen), findsOneWidget);
+    expect(find.byType(CustomerHomeScreen), findsNothing);
   });
 
   testWidgets('customer authentication offers phone OTP and Gmail', (
@@ -7030,15 +7144,15 @@ void main() {
   test('service assets map to the closest supplied artwork', () {
     expect(
       serviceIconAssetForCategory('Haircut & Styling'),
-      'assets/service_icons/haircut.jpeg',
+      'assets/service_icons/haircut.png',
     );
     expect(
       serviceIconAssetForService('Hair Wash Men', category: 'Hair Care'),
-      'assets/service_icons/spa.jpeg',
+      'assets/service_icons/hair_wash.png',
     );
     expect(
       serviceIconAssetForService('Haircut + Hair Wash', category: 'Hair'),
-      'assets/service_icons/haircut.jpeg',
+      'assets/service_icons/haircut.png',
     );
     expect(
       serviceIconAssetForService(
@@ -7049,19 +7163,19 @@ void main() {
     );
     expect(
       serviceIconAssetForService('Beard Colour', category: 'Hair Color'),
-      'assets/service_icons/beard.jpeg',
+      'assets/service_icons/beard.png',
     );
     expect(
       serviceIconAssetForService('Party / Bridal Makeup.', category: 'Makeup'),
-      'assets/service_icons/facial.jpeg',
+      'assets/service_icons/facial.png',
     );
     expect(
       serviceIconAssetForService('Eyebrow Threading', category: 'Threading'),
-      'assets/service_icons/threading.jpeg',
+      'assets/service_icons/threading.png',
     );
     expect(
       serviceIconAssetForCategory('Waxing'),
-      'assets/service_icons/waxing.jpeg',
+      'assets/service_icons/waxing.png',
     );
   });
 

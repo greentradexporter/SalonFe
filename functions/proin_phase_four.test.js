@@ -46,12 +46,12 @@ test("Phase 4 gives customers a server-filtered Proin statement", () => {
   assert.match(stateSource, /refreshCustomerProinActivity/);
   assert.match(profileSource, /customer-proin-view-activity/);
   assert.match(profileSource, /customer-proin-activity-sheet/);
-  assert.match(profileSource, /Unused promotional Proin removed by Pritze/);
+  assert.match(profileSource, /Unused promotional Proin removed by SalonFe/);
   assert.match(profileSource, /Upcoming expiries/);
   assert.match(profileSource, /Valid until/);
 });
 
-test("salon owners can view only their promotional credit wallet and expiry", () => {
+test("legacy salon credit APIs remain available while the owner UI shows Balance", () => {
   const indexSource = source("functions/index.js");
   const backendSource = source("functions/proin_backend.js");
   const stateSource = source("lib/state/app_state.dart");
@@ -66,10 +66,13 @@ test("salon owners can view only their promotional credit wallet and expiry", ()
   assert.match(backendSource, /salon_promotion_credits/);
   assert.match(stateSource, /refreshSalonProinWallet/);
   assert.match(stateSource, /claimSalonProinCoupon/);
-  assert.match(dashboardSource, /Promotional credits/);
-  assert.match(dashboardSource, /salon-proin-coupon-field/);
-  assert.match(dashboardSource, /Upcoming expiries/);
-  assert.match(dashboardSource, /Reward reimbursement/);
+  assert.match(dashboardSource, /SalonBalanceScreen/);
+  assert.doesNotMatch(dashboardSource, /salon-proin-coupon-field/);
+  assert.match(indexSource, /exports\.getSalonBalanceSummary = onMobileCall/);
+  const balanceSource = source("lib/screens/salon/salon_balance_screen.dart");
+  for (const label of ["Deposit amount", "Discount", "Balance", "SalonFe earning"]) {
+    assert.ok(balanceSource.includes(label));
+  }
 });
 
 test("Phase 4 reconciliation includes settled reimbursement evidence", () => {

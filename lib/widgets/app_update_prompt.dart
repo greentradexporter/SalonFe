@@ -141,7 +141,7 @@ class _AppUpdatePromptState extends State<AppUpdatePrompt> {
       );
     } catch (error) {
       if (kDebugMode) {
-        debugPrint('Could not check for a Pritze update: $error');
+        debugPrint('Could not check for a SalonFe update: $error');
       }
       _scheduleRetry(attempt);
     }
@@ -242,7 +242,7 @@ class _AppUpdatePromptState extends State<AppUpdatePrompt> {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     const Text(
-                      'A new version of Pritze is available. Update now to continue with the latest features and fixes.',
+                      'A new version of SalonFe is available. Update now to continue with the latest features and fixes.',
                     ),
                     if (storeError != null) ...[
                       const SizedBox(height: 12),

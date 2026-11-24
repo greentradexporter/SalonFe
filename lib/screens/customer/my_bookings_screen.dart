@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../../widgets/brand_header.dart';
 import '../../models/app_models.dart';
 import '../../state/app_state.dart';
 import '../../state/app_state_scope.dart';
@@ -70,7 +71,7 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
         });
 
     return Scaffold(
-      appBar: AppBar(
+      appBar: SalonFeAppBar(
         title: const Text('Bookings'),
         actions: [const CustomerNotificationButton(), const SizedBox(width: 8)],
       ),
@@ -142,7 +143,7 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
                           value:
                               '${counts[CustomerBookingBucket.cancelled] ?? 0}',
                           label: 'Closed',
-                          color: AppColors.coral,
+                          color: AppColors.danger,
                           selected:
                               _selectedBucket ==
                               CustomerBookingBucket.cancelled,
@@ -348,7 +349,7 @@ class _BookingCard extends StatelessWidget {
                     const AppPill(
                       icon: Icons.bolt_outlined,
                       label: 'Instant',
-                      color: AppColors.coral,
+                      color: AppColors.danger,
                     ),
                   ],
                 ],
@@ -640,12 +641,12 @@ class _BookingCard extends StatelessWidget {
                           height: 64,
                           margin: const EdgeInsets.only(top: 2, bottom: 16),
                           decoration: BoxDecoration(
-                            color: AppColors.champagne,
+                            color: AppColors.primarySoft,
                             borderRadius: BorderRadius.circular(8),
                           ),
                           child: const Icon(
                             Icons.reviews_rounded,
-                            color: AppColors.goldDeep,
+                            color: AppColors.primaryDark,
                             size: 31,
                           ),
                         ),
@@ -703,7 +704,7 @@ class _BookingCard extends StatelessWidget {
                                           index <= rating
                                               ? Icons.star_rounded
                                               : Icons.star_outline_rounded,
-                                          color: AppColors.amber,
+                                          color: AppColors.primary,
                                           size: 38,
                                         ),
                                         tooltip: '$index stars',
@@ -719,7 +720,7 @@ class _BookingCard extends StatelessWidget {
                                   key: ValueKey(rating),
                                   textAlign: TextAlign.center,
                                   style: const TextStyle(
-                                    color: AppColors.goldDeep,
+                                    color: AppColors.primaryDark,
                                     fontSize: 14,
                                     fontWeight: FontWeight.w600,
                                   ),
@@ -832,17 +833,17 @@ class _BookingCard extends StatelessWidget {
   Color _statusColor(BookingStatus status) {
     switch (status) {
       case BookingStatus.pending:
-        return AppColors.amber;
+        return AppColors.primary;
       case BookingStatus.confirmed:
-        return AppColors.goldDeep;
+        return AppColors.success;
       case BookingStatus.inProgress:
         return AppColors.primary;
       case BookingStatus.completed:
         return AppColors.success;
       case BookingStatus.cancelled:
-        return AppColors.coral;
+        return AppColors.danger;
       case BookingStatus.rejected:
-        return AppColors.coral;
+        return AppColors.danger;
     }
   }
 }

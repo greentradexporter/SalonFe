@@ -4,6 +4,7 @@ import 'package:app_links/app_links.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/app_models.dart';
+import 'salon_link_service.dart';
 
 class ReferralLinkService {
   ReferralLinkService._();
@@ -15,6 +16,7 @@ class ReferralLinkService {
 
   static Future<void> initialize() async {
     try {
+      await SalonLinkService.restore();
       final links = AppLinks();
       final initial = await links.getInitialLink();
       if (initial != null) {
@@ -49,6 +51,7 @@ class ReferralLinkService {
   }
 
   static Future<void> _store(Uri uri) async {
+    if (await SalonLinkService.accept(uri)) return;
     if (uri.scheme != 'https' || uri.host != _host) {
       return;
     }

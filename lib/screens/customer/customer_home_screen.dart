@@ -10,6 +10,10 @@ import '../../widgets/app_bottom_nav.dart';
 import '../../widgets/account_actions.dart';
 import '../../widgets/app_ui.dart';
 import '../../widgets/salon_logo.dart';
+import '../../widgets/brand_header.dart';
+import '../../widgets/customer_location_gate.dart';
+import '../../widgets/salon_share_button.dart';
+import '../../widgets/service_illustration.dart';
 import 'salon_detail_screen.dart';
 import 'my_bookings_screen.dart';
 
@@ -48,83 +52,82 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
     }
     final visibleSalons = _rankedSalons(appState);
     final accent = _selectedCategories.firstOrNull?.color ?? AppColors.primary;
-    return Scaffold(
-      bottomNavigationBar: const AppBottomNav(selectedIndex: 0),
-      body: SafeArea(
-        child: RefreshIndicator(
-          onRefresh: appState.refresh,
-          child: ListView(
-            physics: const AlwaysScrollableScrollPhysics(),
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 20),
-            children: [
-              const _LocationHeader(),
-              const SizedBox(height: 12),
-              _HeroSearch(
-                accent: accent,
-                controller: _searchController,
-                onChanged: (value) => setState(() => _searchQuery = value),
-                onClear: _searchQuery.isEmpty
-                    ? null
-                    : () => setState(() {
-                        _searchController.clear();
-                        _searchQuery = '';
-                      }),
-              ),
-              const SizedBox(height: 18),
-              SectionHeader(
-                title: 'Services',
-                actionLabel: _selectedCategories.isEmpty ? null : 'Clear',
-                onAction: _selectedCategories.isEmpty
-                    ? null
-                    : () => setState(_selectedCategories.clear),
-              ),
-              const SizedBox(height: 8),
-              SizedBox(
-                height: 82,
-                child: ListView.separated(
-                  key: const Key('service-category-list'),
-                  scrollDirection: Axis.horizontal,
-                  itemCount: _popularCategories.length,
-                  separatorBuilder: (_, _) => const SizedBox(width: 8),
-                  itemBuilder: (context, index) {
-                    final category = _popularCategories[index];
-                    return _CategoryCard(
-                      category: category,
-                      selected: _selectedCategories.contains(category),
-                      onTap: () => _toggleCategory(category),
-                    );
-                  },
+    return CustomerLocationGate(
+      child: Scaffold(
+        bottomNavigationBar: const AppBottomNav(selectedIndex: 0),
+        body: SafeArea(
+          child: RefreshIndicator(
+            onRefresh: appState.refresh,
+            child: ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 20),
+              children: [
+                const _CustomerHomeHeader(),
+                const SizedBox(height: 12),
+                _HeroSearch(
+                  accent: accent,
+                  controller: _searchController,
+                  onChanged: (value) => setState(() => _searchQuery = value),
+                  onClear: _searchQuery.isEmpty
+                      ? null
+                      : () => setState(() {
+                          _searchController.clear();
+                          _searchQuery = '';
+                        }),
                 ),
-              ),
-              const SizedBox(height: 18),
-              _ResultsHeader(
-                title: _searchQuery.isNotEmpty
-                    ? 'Search results'
-                    : (_selectedCategories.isEmpty
-                          ? 'Recommended'
-                          : _selectedCategories.length == 1
-                          ? '${_selectedCategories.first.label} matches'
-                          : '${_selectedCategories.length} services selected'),
-                subtitle: _selectedCategories.isEmpty
-                    ? 'All salon listings near you'
-                    : 'Salons offering all selected services',
-              ),
-              const SizedBox(height: 8),
-              if (visibleSalons.isEmpty)
-                const EmptyState(
-                  icon: Icons.search_off,
-                  title: 'No salons found',
-                  message: 'Try another service or change your search.',
-                )
-              else
-                for (final salon in visibleSalons) ...[
-                  _SalonCard(
-                    salon: salon,
-                    selectedCategories: _selectedCategories,
+                const SizedBox(height: 18),
+                SectionHeader(
+                  title: 'Services',
+                  actionLabel: _selectedCategories.isEmpty ? null : 'Clear',
+                  onAction: _selectedCategories.isEmpty
+                      ? null
+                      : () => setState(_selectedCategories.clear),
+                ),
+                const SizedBox(height: 8),
+                SizedBox(
+                  height: 104,
+                  child: ListView.separated(
+                    key: const Key('service-category-list'),
+                    scrollDirection: Axis.horizontal,
+                    itemCount: _popularCategories.length,
+                    separatorBuilder: (_, _) => const SizedBox(width: 8),
+                    itemBuilder: (context, index) {
+                      final category = _popularCategories[index];
+                      return _CategoryCard(
+                        category: category,
+                        selected: _selectedCategories.contains(category),
+                        onTap: () => _toggleCategory(category),
+                      );
+                    },
                   ),
-                  const SizedBox(height: 10),
-                ],
-            ],
+                ),
+                const SizedBox(height: 18),
+                SectionHeader(
+                  title: _searchQuery.isNotEmpty
+                      ? 'Search results'
+                      : (_selectedCategories.isEmpty
+                            ? 'Recommended'
+                            : _selectedCategories.length == 1
+                            ? '${_selectedCategories.first.label} matches'
+                            : '${_selectedCategories.length} services selected'),
+                ),
+                const SizedBox(height: 8),
+                if (visibleSalons.isEmpty)
+                  const EmptyState(
+                    icon: Icons.search_off,
+                    title: 'No salons found',
+                    message: 'Try another service or change your search.',
+                  )
+                else
+                  for (final salon in visibleSalons) ...[
+                    _SalonCard(
+                      salon: salon,
+                      selectedCategories: _selectedCategories,
+                    ),
+                    const SizedBox(height: 10),
+                  ],
+              ],
+            ),
           ),
         ),
       ),
@@ -190,36 +193,14 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
   }
 }
 
-class _LocationHeader extends StatelessWidget {
-  const _LocationHeader();
+class _CustomerHomeHeader extends StatelessWidget {
+  const _CustomerHomeHeader();
 
   @override
   Widget build(BuildContext context) {
     return Row(
       children: [
-        const Icon(
-          Icons.location_on_outlined,
-          color: AppColors.primary,
-          size: 24,
-        ),
-        const SizedBox(width: 8),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Current location',
-                style: Theme.of(context).textTheme.titleLarge,
-              ),
-              Text(
-                'Chembur',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-            ],
-          ),
-        ),
+        const Spacer(),
         CustomerNotificationButton(
           onNotificationOpened: (destination, {bookingId}) {
             if (destination == AppNotificationDestination.bookings) {
@@ -229,6 +210,8 @@ class _LocationHeader extends StatelessWidget {
             }
           },
         ),
+        const SizedBox(width: 4),
+        const BrandWordmark(),
       ],
     );
   }
@@ -254,7 +237,7 @@ class _HeroSearch extends StatelessWidget {
       onChanged: onChanged,
       textInputAction: TextInputAction.search,
       decoration: InputDecoration(
-        hintText: 'Search salon, service, area',
+        hintText: 'Search salon or service',
         prefixIcon: Icon(Icons.search, color: accent, size: 21),
         suffixIcon: controller.text.isEmpty
             ? null
@@ -282,37 +265,6 @@ class _HeroSearch extends StatelessWidget {
   }
 }
 
-class _ResultsHeader extends StatelessWidget {
-  final String title;
-  final String subtitle;
-
-  const _ResultsHeader({required this.title, required this.subtitle});
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.end,
-      children: [
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(title, style: Theme.of(context).textTheme.headlineMedium),
-              const SizedBox(height: 4),
-              Text(
-                subtitle,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.bodyMedium,
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-}
-
 class _CategoryCard extends StatelessWidget {
   final _ServiceCategory category;
   final bool selected;
@@ -327,7 +279,7 @@ class _CategoryCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      width: 104,
+      width: 96,
       child: Material(
         color: selected ? category.color.withAlpha(18) : Colors.white,
         borderRadius: BorderRadius.circular(8),
@@ -348,7 +300,11 @@ class _CategoryCard extends StatelessWidget {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(category.icon, color: category.color, size: 21),
+                ServiceIllustration(
+                  key: ValueKey('home-service-icon-${category.label}'),
+                  category: category.label,
+                  size: 58,
+                ),
                 const SizedBox(height: 3),
                 Text(
                   category.label,
@@ -388,10 +344,6 @@ class _SalonCard extends StatelessWidget {
                 ),
               )
               .toList();
-    final previewServices = matchedServices
-        .take(3)
-        .map((s) => s.name)
-        .join(', ');
     final barbers = appState.barbersForSalon(salon.id);
     final isBookable = appState.isSalonBookable(salon.id);
     final isCurrentlyOpen = appState.isSalonCurrentlyOpen(salon.id);
@@ -468,152 +420,160 @@ class _SalonCard extends StatelessWidget {
     return GlassCard(
       key: ValueKey('salon-card-${salon.id}'),
       onTap: showSalonPreview,
-      padding: const EdgeInsets.all(0),
+      padding: const EdgeInsets.all(12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Padding(
-            padding: const EdgeInsets.all(12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    SalonLogo(
-                      key: ValueKey('salon-card-image-${salon.id}'),
-                      logoUrl: salon.coverImageUrl,
-                      color: AppColors.primary,
-                      size: 42,
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            salon.displayName,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: Theme.of(context).textTheme.titleLarge,
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            salon.address.trim().isEmpty
-                                ? 'Address not added'
-                                : salon.address.trim(),
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: Theme.of(context).textTheme.bodySmall
-                                ?.copyWith(color: AppColors.ink),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            previewServices.isEmpty
-                                ? 'Services will be added soon'
-                                : previewServices,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: Theme.of(context).textTheme.bodyMedium,
-                          ),
-                          const SizedBox(height: 3),
-                          // The status is short, so the offer sits beside it
-                          // rather than consuming another line of the card.
-                          Row(
-                            children: [
-                              Flexible(
-                                child: Text(
-                                  availabilityLabel,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: Theme.of(context).textTheme.bodySmall
-                                      ?.copyWith(
-                                        color: availabilityColor,
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                ),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final photoWidth = (constraints.maxWidth * .36).clamp(
+                112.0,
+                170.0,
+              );
+              return Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _SalonListingPhoto(salon: salon, width: photoWidth),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(
+                              child: Text(
+                                salon.displayName,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: Theme.of(context).textTheme.titleLarge,
                               ),
-                              if (appState.hasActiveCustomerSession &&
-                                  matchedServices.isNotEmpty) ...[
-                                const SizedBox(width: 8),
-                                // Not Flexible: two flexible children split
-                                // the row evenly and clipped the amount to
-                                // "Save up t…". The status beside it is the
-                                // one that may ellipsize instead.
-                                _PersonalDiscountPreview(
-                                  salonId: salon.id,
-                                  refreshVersion:
-                                      appState.discountOfferRefreshVersion,
-                                  serviceIds: matchedServices
-                                      .take(6)
-                                      .map((service) => service.id)
-                                      .toList(growable: false),
-                                ),
-                              ],
-                            ],
+                            ),
+                            SalonShareButton(salon: salon),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        _SalonRating(
+                          rating: salon.rating,
+                          reviewCount: salon.reviewCount,
+                        ),
+                        const SizedBox(height: 10),
+                        Text(
+                          availabilityLabel,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(
+                                color: availabilityColor,
+                                fontWeight: FontWeight.w600,
+                              ),
+                        ),
+                        if (appState.hasActiveCustomerSession &&
+                            matchedServices.isNotEmpty) ...[
+                          const SizedBox(height: 8),
+                          _PersonalDiscountPreview(
+                            salonId: salon.id,
+                            refreshVersion:
+                                appState.discountOfferRefreshVersion,
+                            serviceIds: matchedServices
+                                .take(6)
+                                .map((service) => service.id)
+                                .toList(growable: false),
                           ),
                         ],
-                      ),
+                      ],
                     ),
-                    const SizedBox(width: 8),
-                    _SalonRating(
-                      rating: salon.rating,
-                      reviewCount: salon.reviewCount,
-                    ),
-                  ],
+                  ),
+                ],
+              );
+            },
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: _SalonFact(
+                  icon: Icons.schedule_outlined,
+                  label: _compactTimeRange(salon),
+                  color: AppColors.primary,
                 ),
-                const SizedBox(height: 11),
-                const Divider(),
-                const SizedBox(height: 10),
-                Row(
-                  children: [
-                    Expanded(
-                      child: _SalonFact(
-                        icon: Icons.schedule_outlined,
-                        label: _compactTimeRange(salon),
-                        color: AppColors.primary,
-                      ),
-                    ),
-                    Expanded(
-                      child: _SalonFact(
-                        icon: Icons.content_cut,
-                        label: '${barbers.length} barbers',
-                        color: AppColors.muted,
-                      ),
-                    ),
-                  ],
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _SalonFact(
+                  icon: Icons.content_cut,
+                  label:
+                      '${barbers.length} ${barbers.length == 1 ? 'barber' : 'barbers'}',
+                  color: AppColors.muted,
                 ),
-                const SizedBox(height: 11),
-                Row(
-                  children: [
-                    Expanded(
-                      child: FilledButton.icon(
-                        key: ValueKey('salon-card-instant-${salon.id}'),
-                        onPressed: instantAvailable
-                            ? () => openSalon(SalonDetailEntryAction.instant)
-                            : null,
-                        icon: const Icon(Icons.bolt_outlined, size: 19),
-                        label: const Text('Book instantly'),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        key: ValueKey('salon-card-schedule-${salon.id}'),
-                        onPressed: scheduleSlot,
-                        icon: const Icon(
-                          Icons.event_available_outlined,
-                          size: 18,
-                        ),
-                        label: const Text('Schedule Slot'),
-                      ),
-                    ),
-                  ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: FilledButton.icon(
+                  key: ValueKey('salon-card-instant-${salon.id}'),
+                  onPressed: instantAvailable
+                      ? () => openSalon(SalonDetailEntryAction.instant)
+                      : null,
+                  icon: const Icon(Icons.bolt_outlined, size: 19),
+                  label: const Text('Book instantly'),
                 ),
-              ],
-            ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: OutlinedButton.icon(
+                  key: ValueKey('salon-card-schedule-${salon.id}'),
+                  onPressed: scheduleSlot,
+                  icon: const Icon(Icons.event_available_outlined, size: 18),
+                  label: const Text('Schedule Slot'),
+                ),
+              ),
+            ],
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _SalonListingPhoto extends StatelessWidget {
+  final Salon salon;
+  final double width;
+  const _SalonListingPhoto({required this.salon, required this.width});
+  @override
+  Widget build(BuildContext context) {
+    final fallback = ColoredBox(
+      color: AppColors.primarySoft,
+      child: const Center(
+        child: Icon(
+          Icons.storefront_outlined,
+          size: 42,
+          color: AppColors.primary,
+        ),
+      ),
+    );
+    return Semantics(
+      label: 'Photo of ${salon.displayName}',
+      image: true,
+      child: ClipRRect(
+        key: ValueKey('salon-card-image-${salon.id}'),
+        borderRadius: BorderRadius.circular(12),
+        child: SizedBox(
+          width: width,
+          height: 152,
+          child: salon.coverImageUrl.trim().isEmpty
+              ? fallback
+              : Image.network(
+                  salon.coverImageUrl.trim(),
+                  fit: BoxFit.cover,
+                  excludeFromSemantics: true,
+                  errorBuilder: (_, _, _) => fallback,
+                ),
+        ),
       ),
     );
   }
@@ -679,7 +639,7 @@ class _PersonalDiscountPreviewState extends State<_PersonalDiscountPreview> {
             children: [
               const Icon(
                 Icons.cloud_off_rounded,
-                color: AppColors.amber,
+                color: AppColors.primary,
                 size: 15,
               ),
               const SizedBox(width: 4),
@@ -689,7 +649,7 @@ class _PersonalDiscountPreviewState extends State<_PersonalDiscountPreview> {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: AppColors.amber,
+                    color: AppColors.primary,
                     fontWeight: FontWeight.w700,
                   ),
                 ),
@@ -857,7 +817,7 @@ class _SalonPreviewSheet extends StatelessWidget {
                 AppPill(
                   icon: Icons.content_cut,
                   label: '$barberCount barbers',
-                  color: AppColors.coral,
+                  color: AppColors.danger,
                 ),
               ],
             ),
@@ -956,7 +916,7 @@ class _SalonRating extends StatelessWidget {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        const Icon(Icons.star_rounded, color: AppColors.amber, size: 18),
+        const Icon(Icons.star_rounded, color: AppColors.primary, size: 18),
         const SizedBox(width: 3),
         Text(
           formatRating(rating),
@@ -1045,37 +1005,37 @@ const _popularCategories = [
   _ServiceCategory(
     icon: Icons.face_retouching_natural,
     label: 'Beard',
-    color: AppColors.goldDeep,
+    color: AppColors.primary,
   ),
   _ServiceCategory(
     icon: Icons.spa_outlined,
     label: 'Facial',
-    color: AppColors.leaf,
+    color: AppColors.primary,
   ),
-  _ServiceCategory(icon: Icons.spa, label: 'Spa', color: AppColors.plum),
+  _ServiceCategory(icon: Icons.spa, label: 'Spa', color: AppColors.primary),
   _ServiceCategory(
     icon: Icons.back_hand_outlined,
     label: 'Mani/Pedi',
-    color: AppColors.rose,
+    color: AppColors.primary,
   ),
   _ServiceCategory(
     icon: Icons.gesture,
     label: 'Threading',
-    color: AppColors.gold,
+    color: AppColors.primary,
   ),
   _ServiceCategory(
     icon: Icons.waves_outlined,
     label: 'Waxing',
-    color: AppColors.copper,
+    color: AppColors.primary,
   ),
   _ServiceCategory(
     icon: Icons.palette_outlined,
     label: 'Color',
-    color: AppColors.copper,
+    color: AppColors.primary,
   ),
   _ServiceCategory(
     icon: Icons.auto_awesome,
     label: 'Makeup',
-    color: AppColors.rose,
+    color: AppColors.primary,
   ),
 ];

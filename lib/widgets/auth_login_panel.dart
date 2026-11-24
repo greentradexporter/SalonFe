@@ -9,6 +9,7 @@ import '../state/app_state.dart';
 import '../state/app_state_scope.dart';
 import '../screens/referrals/referral_onboarding_screen.dart';
 import 'app_ui.dart';
+import 'brand_header.dart';
 import 'app_error_dialog.dart';
 
 enum AuthLoginMethod { phone, email }
@@ -18,6 +19,7 @@ class AuthLoginPanel extends StatefulWidget {
   final VoidCallback? onLoggedIn;
   final String? phoneHelperText;
   final bool embedded;
+  final bool showBranding;
 
   const AuthLoginPanel({
     super.key,
@@ -25,6 +27,7 @@ class AuthLoginPanel extends StatefulWidget {
     this.onLoggedIn,
     this.phoneHelperText,
     this.embedded = false,
+    this.showBranding = true,
   });
 
   @override
@@ -95,6 +98,15 @@ class _AuthLoginPanelState extends State<AuthLoginPanel> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          // Owner pages already carry the wordmark in their AppBar. Avoid a
+          // duplicate row that pushes the OTP action further down the page.
+          if (customerLogin && widget.showBranding) ...[
+            const Align(
+              alignment: Alignment.centerRight,
+              child: BrandWordmark(width: 108),
+            ),
+            const SizedBox(height: 14),
+          ],
           if (!customerLogin) ...[
             SegmentedButton<AuthLoginMethod>(
               segments: const [
@@ -227,15 +239,15 @@ class _AuthLoginPanelState extends State<AuthLoginPanel> {
                 ),
               ),
               const SizedBox(height: 4),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.end,
+              Wrap(
+                alignment: WrapAlignment.end,
+                spacing: 4,
                 children: [
                   TextButton(
                     key: const ValueKey('change-phone-number-button'),
                     onPressed: _isSubmitting ? null : _resetPhoneOtp,
                     child: const Text('Change number'),
                   ),
-                  const SizedBox(width: 4),
                   TextButton.icon(
                     key: const ValueKey('resend-phone-otp-button'),
                     onPressed: _isSubmitting || _resendSeconds > 0
@@ -295,15 +307,15 @@ class _AuthLoginPanelState extends State<AuthLoginPanel> {
                 ),
               ),
               const SizedBox(height: 4),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.end,
+              Wrap(
+                alignment: WrapAlignment.end,
+                spacing: 4,
                 children: [
                   TextButton(
                     key: const ValueKey('change-email-button'),
                     onPressed: _isSubmitting ? null : _resetEmailOtp,
                     child: const Text('Change email'),
                   ),
-                  const SizedBox(width: 4),
                   TextButton.icon(
                     key: const ValueKey('resend-email-otp-button'),
                     onPressed: _isSubmitting || _resendSeconds > 0
@@ -902,7 +914,7 @@ class _PhonePrefix extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      width: 78,
+      width: 30 + MediaQuery.textScalerOf(context).scale(16) * 3,
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [

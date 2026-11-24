@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../widgets/brand_header.dart';
 import '../../models/app_models.dart';
 import '../../state/app_state_scope.dart';
 import '../../theme/app_theme.dart';
@@ -62,7 +63,7 @@ class _CustomerFeedbackScreenState extends State<CustomerFeedbackScreen> {
       (feedback) => feedback.bookingId == widget.booking.id,
     );
     return Scaffold(
-      appBar: AppBar(title: const Text('Your feedback')),
+      appBar: SalonFeAppBar(title: const Text('Your feedback')),
       body: ListView(
         padding: const EdgeInsets.all(20),
         children: [
@@ -70,13 +71,13 @@ class _CustomerFeedbackScreenState extends State<CustomerFeedbackScreen> {
             width: 72,
             height: 72,
             decoration: BoxDecoration(
-              color: AppColors.champagne,
+              color: AppColors.primarySoft,
               borderRadius: BorderRadius.circular(22),
             ),
             child: const Icon(
               Icons.reviews_rounded,
               size: 36,
-              color: AppColors.goldDeep,
+              color: AppColors.primaryDark,
             ),
           ),
           const SizedBox(height: 20),
@@ -105,7 +106,7 @@ class _CustomerFeedbackScreenState extends State<CustomerFeedbackScreen> {
                         ? Icons.star_rounded
                         : Icons.star_outline_rounded,
                     size: 38,
-                    color: AppColors.amber,
+                    color: AppColors.primary,
                   ),
                 ),
             ],

@@ -29,7 +29,7 @@ test("builds a stable encoded UPI URI from server-authoritative details", () => 
   assert.equal(uri.searchParams.get("pn"), "A & B Salon");
   assert.equal(uri.searchParams.get("am"), "349.00");
   assert.equal(uri.searchParams.get("cu"), "INR");
-  assert.equal(uri.searchParams.get("tn"), "Pritze booking booking / 42");
+  assert.equal(uri.searchParams.get("tn"), "SalonFe booking booking / 42");
   assert.equal(uri.searchParams.get("tr"), details.transactionReference);
   assert.equal(
     details.transactionReference,

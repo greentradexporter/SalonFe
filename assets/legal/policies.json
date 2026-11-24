@@ -1,0 +1,81 @@
+{
+  "updated": "November 24, 2026",
+  "privacy": {
+    "title": "Privacy Policy",
+    "sections": [
+      {
+        "title": "About this policy",
+        "body": "SalonFe helps customers discover salons and book services, and helps salon owners and barbers manage appointments. SalonFe is operated by Mayur Muley. Contact greentradexporter@gmail.com or +91 89996 08278 for support, privacy requests or concerns."
+      },
+      {
+        "title": "Information we use",
+        "body": "We process account information such as your name, phone number, email, account role and sign-in provider; booking times, services, prices and status; optional profile details, preferences and photos; salon and staff details, service availability, weekly closed days and business photos; reviews, referrals, promotional credits, deposits, earnings, discounts and settlement records. Salon payout information may include UPI identifiers and QR images. Authentication, device notification tokens, technical diagnostics and security information support sign-in and reliable operation."
+      },
+      {
+        "title": "Optional location for discovery",
+        "body": "We ask permission before obtaining a foreground location for salon discovery. You may decline and continue browsing or booking. When signed in as a customer, we round coordinates to approximately 100-metre precision and save the latest discovery location privately in your account. This is a one-time foreground reading, not continuous background tracking. The latest saved discovery location remains until replaced, cleared through Profile \u2192 Discovery location, or removed following an applicable deletion request. Your device can provide approximate location instead of precise location. Guest discovery coordinates stay in app memory and may be saved to your account if you sign in during that session with location consent enabled."
+      },
+      {
+        "title": "Arrival sharing is separate",
+        "body": "If you choose arrival sharing for a booking, location or arrival progress is shared with the relevant salon to coordinate your visit. Discovery permission does not automatically start arrival sharing. You can stop arrival sharing using its booking controls."
+      },
+      {
+        "title": "How information is used and shared",
+        "body": "We use information to provide discovery, authentication, booking, business management, rewards, notifications, payment coordination, support and abuse prevention. Booking and arrival details needed to provide a service are shared with the relevant salon and assigned staff. Approved public salon details and photos may appear in the app and on individual shareable salon pages. Discovery coordinates are not published in those pages or automatically shared with salons. We do not sell personal information."
+      },
+      {
+        "title": "Providers and storage",
+        "body": "Google and Firebase provide authentication, cloud storage, database, server functions, notifications and security infrastructure. Data may be processed outside your country by these providers. Access rules restrict private data according to identity and role. No system can guarantee complete security."
+      },
+      {
+        "title": "Retention and your choices",
+        "body": "We retain information needed to operate services, maintain transaction and business records, resolve disputes, prevent abuse and meet applicable obligations. You may browse salons without signing in; booking requires an account. You may decline optional permissions, change them in device settings and clear saved discovery location in Profile. Contact support to request access, correction or deletion of account information. Identity checks may be needed. Some transaction, fraud prevention or legally required records may need to be retained."
+      },
+      {
+        "title": "Age and updates",
+        "body": "SalonFe is not directed to children under 13. We do not knowingly collect information from children under 13. A parent or guardian should contact us if a child has provided personal information. We may update this policy; the date shown identifies the latest version."
+      },
+      {
+        "title": "Contact",
+        "body": "SalonFe is operated by Mayur Muley. Contact greentradexporter@gmail.com or +91 89996 08278 for support, privacy requests or concerns."
+      }
+    ]
+  },
+  "terms": {
+    "title": "Terms & Conditions",
+    "sections": [
+      {
+        "title": "About SalonFe",
+        "body": "These terms describe use of the SalonFe discovery, booking and salon management services operated by Mayur Muley. By using SalonFe you agree to use it in accordance with these terms and applicable law. Contact support if you need clarification."
+      },
+      {
+        "title": "Accounts and guest browsing",
+        "body": "You can browse public salons without an account. You must sign in before making a booking. Keep your contact information accurate and protect your sign-in details and OTPs. Customer, salon-owner and staff accounts provide different access. Do not impersonate others or use accounts without permission. You are responsible for activity performed through your account."
+      },
+      {
+        "title": "Bookings and salon services",
+        "body": "Salons provide the listed services. Review the selected salon, services, barber, appointment time, price and displayed booking status before confirming. Instant requests depend on salon availability and acceptance; submitting a request does not guarantee acceptance. A confirmed scheduled slot is subject to the status shown in the app. Owners must keep services, operating hours and weekly closed days accurate. New bookings are unavailable on a salon\u2019s configured closed days. Changing a weekly closed day does not automatically cancel existing appointments; contact affected customers and use the booking controls."
+      },
+      {
+        "title": "Prices, changes and cancellation",
+        "body": "Displayed prices relate to the services selected. Review any proposed additional services and their prices before approving them. Use the booking cancellation or rescheduling controls when available and contact the salon or support about changes, late arrival, missed appointments, disputes or payment concerns. Any applicable conditions must be disclosed before you confirm. Do not assume an automatic refund or a fee unless it is specifically shown and applicable."
+      },
+      {
+        "title": "Payments and promotional benefits",
+        "body": "Pay the amount and recipient shown by the applicable booking or payment instructions. Promotional credits, referral rewards, discounts and eligibility follow the offer displayed in the app and may be subject to limits and verification. Promotional balances are not a general cash wallet. Salon deposit accounting displays deposit, discount, earning and balance, where balance is deposit minus discount minus earning. These records do not themselves confirm a bank transfer or replace settlement verification. Contact support about accounting discrepancies."
+      },
+      {
+        "title": "Salon content and responsible use",
+        "body": "Owners must have permission to upload salon photos, staff information and other content, and keep their business details accurate. Do not post unlawful, misleading, abusive or infringing content, manipulate reviews or rewards, interfere with service security or attempt unauthorised access. We may restrict misuse or suspend access where needed to protect users and the service."
+      },
+      {
+        "title": "Privacy and availability",
+        "body": "Our Privacy Policy explains how we handle information and optional location permissions. Public salon links can be shared outside the app. Availability, travel estimates, listings and notifications can change or be delayed. We work to maintain the service but cannot guarantee uninterrupted access or the quality of independently provided salon services. Nothing in these terms removes rights or remedies that applicable law does not permit to be excluded."
+      },
+      {
+        "title": "Changes and contact",
+        "body": "We may update these terms and identify the latest version by its date. SalonFe is operated by Mayur Muley. Contact greentradexporter@gmail.com or +91 89996 08278 for support, privacy requests or concerns."
+      }
+    ]
+  }
+}

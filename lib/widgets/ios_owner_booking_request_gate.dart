@@ -6,7 +6,7 @@ import '../state/app_state.dart';
 import '../state/app_state_scope.dart';
 import '../theme/app_theme.dart';
 
-/// Gives a signed-in salon owner an immediate decision surface while Pritze is
+/// Gives a signed-in salon owner an immediate decision surface while SalonFe is
 /// open on an iPhone. iOS keeps notification actions behind an expansion
 /// gesture, so this is deliberately an in-app, iOS-only complement to APNs.
 class IosOwnerBookingRequestGate extends StatefulWidget {
@@ -146,12 +146,12 @@ class _IosOwnerBookingRequestDialogState
                   width: 84,
                   height: 84,
                   decoration: BoxDecoration(
-                    color: AppColors.coral.withAlpha(24),
+                    color: AppColors.danger.withAlpha(24),
                     shape: BoxShape.circle,
                   ),
                   child: const Icon(
                     Icons.bolt_rounded,
-                    color: AppColors.coral,
+                    color: AppColors.danger,
                     size: 48,
                   ),
                 ),

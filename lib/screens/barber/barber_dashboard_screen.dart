@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../../widgets/brand_header.dart';
+import '../entry/account_entry_screen.dart';
 import '../../models/app_models.dart';
 import '../../models/service_catalog.dart';
 import '../../state/app_state_scope.dart';
@@ -32,7 +34,7 @@ class BarberDashboardScreen extends StatelessWidget {
       length: 2,
       child: Builder(
         builder: (dashboardContext) => Scaffold(
-          appBar: AppBar(
+          appBar: SalonFeAppBar(
             title: const Text('Barber tools'),
             actions: [
               if (appState.barberAccount != null)
@@ -45,9 +47,8 @@ class BarberDashboardScreen extends StatelessWidget {
                     }
                   },
                   onLoggedOut: () async {
-                    if (dashboardContext.mounted &&
-                        Navigator.of(dashboardContext).canPop()) {
-                      Navigator.of(dashboardContext).pop();
+                    if (dashboardContext.mounted) {
+                      openAccountHome(dashboardContext);
                     }
                   },
                 ),
@@ -231,7 +232,7 @@ class _BarberJoinViewState extends State<_BarberJoinView> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const AppPill(label: 'Pending', color: AppColors.amber),
+                const AppPill(label: 'Pending', color: AppColors.primary),
                 const SizedBox(height: 14),
                 Text(
                   widget.request!.barberName,
@@ -254,7 +255,9 @@ class _BarberJoinViewState extends State<_BarberJoinView> {
                   : () => _withdrawRequest(context, widget.request!),
               icon: const Icon(Icons.undo_rounded),
               label: Text(_isWithdrawing ? 'Withdrawing…' : 'Withdraw request'),
-              style: OutlinedButton.styleFrom(foregroundColor: AppColors.coral),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppColors.danger,
+              ),
             ),
           ),
         ],
@@ -304,7 +307,7 @@ class _BarberJoinViewState extends State<_BarberJoinView> {
                   const SizedBox(height: 12),
                   const AppPill(
                     label: 'Last request rejected',
-                    color: AppColors.coral,
+                    color: AppColors.danger,
                   ),
                 ],
                 if (widget.request?.status == JoinRequestStatus.withdrawn) ...[
@@ -507,12 +510,12 @@ class _BarberJoinViewState extends State<_BarberJoinView> {
                     width: 62,
                     height: 62,
                     decoration: BoxDecoration(
-                      color: AppColors.coral.withAlpha(22),
+                      color: AppColors.danger.withAlpha(22),
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: const Icon(
                       Icons.undo_rounded,
-                      color: AppColors.coral,
+                      color: AppColors.danger,
                       size: 30,
                     ),
                   ),
@@ -552,7 +555,7 @@ class _BarberJoinViewState extends State<_BarberJoinView> {
                   child: FilledButton.icon(
                     onPressed: () => Navigator.pop(dialogContext, true),
                     style: FilledButton.styleFrom(
-                      backgroundColor: AppColors.coral,
+                      backgroundColor: AppColors.danger,
                     ),
                     icon: const Icon(Icons.undo_rounded, size: 19),
                     label: const Text('Yes, withdraw request'),
@@ -835,7 +838,7 @@ class _BarberWorkViewState extends State<_BarberWorkView> {
                 label: 'Active',
                 value: '${grouped[BarberBookingBucket.active]!.length}',
                 icon: Icons.content_cut,
-                color: AppColors.coral,
+                color: AppColors.danger,
               ),
             ),
             const SizedBox(width: 8),
@@ -985,7 +988,7 @@ class _BarberEarningsView extends StatelessWidget {
                   detail:
                       '${_completedCountForMonth(completed, now)} completed',
                   icon: Icons.calendar_month_outlined,
-                  color: AppColors.goldDeep,
+                  color: AppColors.primaryDark,
                 ),
               ),
             ],
@@ -1201,7 +1204,7 @@ class _BarberBookingCard extends StatelessWidget {
                     const AppPill(
                       icon: Icons.bolt_outlined,
                       label: 'Instant',
-                      color: AppColors.coral,
+                      color: AppColors.danger,
                     ),
                   ],
                 ],
@@ -1225,7 +1228,7 @@ class _BarberBookingCard extends StatelessWidget {
             Text(
               'Cancellation reason: ${booking.cancellationReason}',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: AppColors.coral,
+                color: AppColors.danger,
                 fontWeight: FontWeight.w600,
               ),
             ),
@@ -1269,15 +1272,15 @@ class _BarberBookingCard extends StatelessWidget {
 
   Color _outcomeColor() {
     if (outcome == 'Not accepted' || outcome.startsWith('Missed')) {
-      return AppColors.coral;
+      return AppColors.danger;
     }
     return switch (booking.status) {
-      BookingStatus.pending => AppColors.amber,
-      BookingStatus.confirmed => AppColors.goldDeep,
+      BookingStatus.pending => AppColors.primary,
+      BookingStatus.confirmed => AppColors.success,
       BookingStatus.inProgress => AppColors.primary,
       BookingStatus.completed => AppColors.success,
-      BookingStatus.cancelled => AppColors.coral,
-      BookingStatus.rejected => AppColors.coral,
+      BookingStatus.cancelled => AppColors.danger,
+      BookingStatus.rejected => AppColors.danger,
     };
   }
 

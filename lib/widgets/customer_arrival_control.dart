@@ -178,7 +178,7 @@ class _CustomerArrivalControlState extends State<CustomerArrivalControl> {
       builder: (dialogContext) => AlertDialog(
         title: const Text('Share live location?'),
         content: const Text(
-          'Pritze will share only your latest location with the salon administrator while this app is open. It expires automatically, and you can stop at any time.',
+          'SalonFe will share only your latest location with the salon administrator while this app is open. It expires automatically, and you can stop at any time.',
         ),
         actions: [
           TextButton(

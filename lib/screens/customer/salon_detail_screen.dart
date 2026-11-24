@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../widgets/brand_header.dart';
 import '../../models/app_models.dart';
 import '../../state/app_state_scope.dart';
 import '../../state/app_state.dart';
@@ -9,6 +10,7 @@ import '../../utils/url_launcher_utils.dart';
 import '../../widgets/app_ui.dart';
 import '../../widgets/booking_status_timeline.dart';
 import '../../widgets/salon_logo.dart';
+import '../../widgets/salon_share_button.dart';
 import 'my_bookings_screen.dart';
 import 'salon_booking_screen.dart';
 
@@ -40,7 +42,7 @@ class _SalonDetailScreenState extends State<SalonDetailScreen> {
 
     if (salon == null) {
       return Scaffold(
-        appBar: AppBar(title: const Text('Salon')),
+        appBar: SalonFeAppBar(title: const Text('Salon')),
         body: const EmptyState(
           icon: Icons.storefront,
           title: 'Salon not found',
@@ -96,6 +98,13 @@ class _SalonDetailScreenState extends State<SalonDetailScreen> {
       body: CustomScrollView(
         slivers: [
           SliverAppBar(
+            actions: [
+              SalonShareButton(salon: salon),
+              const Padding(
+                padding: EdgeInsets.only(right: 12),
+                child: Center(child: BrandWordmark()),
+              ),
+            ],
             expandedHeight: 236,
             pinned: true,
             backgroundColor: AppColors.canvas,
@@ -143,12 +152,12 @@ class _SalonDetailScreenState extends State<SalonDetailScreen> {
                 if (!canBookInstantly) ...[
                   const SizedBox(height: 10),
                   GlassCard(
-                    color: AppColors.champagne.withAlpha(80),
+                    color: AppColors.primarySoft.withAlpha(80),
                     child: Row(
                       children: [
                         const Icon(
                           Icons.info_outline,
-                          color: AppColors.goldDeep,
+                          color: AppColors.primaryDark,
                         ),
                         const SizedBox(width: 10),
                         Expanded(
@@ -207,7 +216,7 @@ class _SalonDetailScreenState extends State<SalonDetailScreen> {
                           icon: Icons.badge_outlined,
                           title: 'Pick barber',
                           subtitle: '${barbers.length} available',
-                          color: AppColors.coral,
+                          color: AppColors.danger,
                           onTap: () =>
                               _showBarberPickerSheet(context, salon, barbers),
                         ),
@@ -744,7 +753,7 @@ class _InstantServiceSelectionScreenState
     final salon = appState.getSalon(widget.salonId);
     if (salon == null) {
       return Scaffold(
-        appBar: AppBar(title: const Text('Choose services')),
+        appBar: SalonFeAppBar(title: const Text('Choose services')),
         body: const EmptyState(
           icon: Icons.storefront_outlined,
           title: 'Salon not found',
@@ -773,7 +782,7 @@ class _InstantServiceSelectionScreenState
     }).toList();
 
     return Scaffold(
-      appBar: AppBar(title: Text(salon.displayName)),
+      appBar: SalonFeAppBar(title: Text(salon.displayName)),
       bottomNavigationBar: CustomerActiveBookingFooter(
         onOpenBooking: () => Navigator.of(
           context,
@@ -989,7 +998,7 @@ class _DetailHero extends StatelessWidget {
                                   children: [
                                     const Icon(
                                       Icons.star_rounded,
-                                      color: AppColors.amber,
+                                      color: AppColors.primary,
                                       size: 18,
                                     ),
                                     const SizedBox(width: 3),
@@ -1020,19 +1029,27 @@ class _DetailHero extends StatelessWidget {
                     ],
                   ),
                   const SizedBox(height: 11),
-                  Row(
+                  Wrap(
+                    spacing: 14,
+                    runSpacing: 8,
                     children: [
                       _DetailFact(
                         icon: Icons.schedule_outlined,
                         label: _compactTimeRange(salon),
                         color: AppColors.primary,
                       ),
-                      const SizedBox(width: 14),
                       _DetailFact(
                         icon: Icons.content_cut,
                         label: '$barberCount barbers',
                         color: AppColors.muted,
                       ),
+                      if (salon.closedWeekdays.isNotEmpty)
+                        _DetailFact(
+                          icon: Icons.event_busy_outlined,
+                          label:
+                              'Closed: ${salon.closedWeekdays.map((day) => const ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][day - 1]).join(', ')}',
+                          color: AppColors.muted,
+                        ),
                     ],
                   ),
                 ],
@@ -1069,7 +1086,7 @@ class _DetailFact extends StatelessWidget {
       children: [
         Icon(icon, color: color, size: 16),
         const SizedBox(width: 5),
-        labelText,
+        Flexible(child: labelText),
       ],
     );
   }

@@ -10,6 +10,7 @@ import {
   signOut,
 } from "firebase/auth";
 import { getFunctions, httpsCallable } from "firebase/functions";
+import { isCurrentOperationalBooking, isCurrentOperationalAlert, operationalDayStart, recentTerminalBookings } from "./operational-view";
 
 type View = "overview" | "intelligence" | "arrivals" | "bookings" | "customers" | "salons" | "barbers" | "reviews" | "settlements" | "discounts" | "proin" | "reports" | "activity" | "guide";
 type BookingStatus = "pending" | "confirmed" | "inProgress" | "completed" | "cancelled" | "rejected";
@@ -210,8 +211,6 @@ type DiscountCampaign = {
   payoutMultiplier: number;
   salonPayoutPercent: number;
   salonPayoutPercentByBookingNumber: Record<string, number>;
-  salonFirstVisitEarningPercent?: number;
-  salonFirstVisitEarningMaximumAmount?: number;
   cashbackProinAmount: number;
   cashbackValidityDays: number;
   cashbackTotalBudgetProin: number;
@@ -339,7 +338,6 @@ type ProinProgram = {
   maximumProinPerBooking: number;
   maximumRedemptionPercent: number;
   stackableWithDiscount: boolean;
-  salonDeposit?: boolean;
   eligibleSalonIds: string[];
   eligibleServiceIds: string[];
   termsVersion: string;
@@ -559,24 +557,22 @@ const discountFieldHelp: Record<string, string> = {
   campaignId: "Unique ID for this discount campaign. Use a short lowercase name like first_visit_aug_2026. Create it here; later you can find it in the Discount campaigns table.",
   name: "Human-readable campaign name shown to admins and receipts. Use a name your team can recognize later.",
   priority: "If more than one automatic discount matches, the higher priority wins. Use bigger numbers for campaigns you want to take preference.",
-  journeyCountScope: "Platform counts every completed Pritze booking by the customer. Salon counts only completed bookings at the eligible salon.",
+  journeyCountScope: "Platform counts every completed SalonFe booking by the customer. Salon counts only completed bookings at the eligible salon.",
   journeyMilestones: "Add each booking number that earns a reward. Every row can give a discount, Proin, or both. Booking numbers do not need to be consecutive.",
   voucherOnly: "Choose Automatic when the app applies the best eligible discount without a code. Choose Voucher when the campaign has a protected code, either hidden or visible at checkout.",
   visibleAtCheckout: "Hidden typed-code coupon means customers only get the benefit when someone tells them the code and they type it. Visible checkout offer means eligible customers see one tappable row below the final price before booking.",
-  fundingSource: "Choose Salon promotional credits when salon campaigns should consume that salon's Proin balance first and then the approved ₹1,000 credit line. Choose Platform discount vault when Pritze centrally funds the payout.",
+  fundingSource: "Choose Salon promotional credits when salon campaigns should consume that salon's Proin balance first and then the approved ₹1,000 credit line. Choose Platform discount vault when SalonFe centrally funds the payout.",
   voucherCode: "The customer-entered code, such as SAVE10. Use only letters and numbers, include at least one letter, and keep the original safely because stored codes are protected.",
   discountType: "Choose Percentage for offers like 10% off, or Fixed for a fixed rupee amount such as ₹50 off. A price discount cannot be zero because it must reduce the customer’s payable amount. Use Proin operations for a Proin-only reward, or add Proin cashback here to combine both.",
   discountPercent: "Customer discount percentage. Fill this when Discount type is Percentage; for example 10 means 10% off.",
   fixedDiscountAmount: "Fixed rupee discount. Fill this when Discount type is Fixed; it is ignored for percentage campaigns.",
-  salonFirstVisitEarningPercent: "On a customer's first completed booking at the salon, the salon also earns this share of the bill. Example: 10 on a ₹100 bill earns the salon ₹10. 0 turns it off.",
-  salonFirstVisitEarningMaximumAmount: "The most the salon can earn from one first-visit booking. Example: 50 means a ₹900 bill still earns at most ₹50. 0 means no cap.",
   salonPayoutPercent: "How much the salon receives as a percentage of the customer's discount. Example: 100 means a ₹10 discount pays the salon ₹10; 0 means the salon receives nothing for that coupon use.",
   salonPayoutPercentByBookingNumber: "Optional booking-by-booking override. Enter pairs such as 1:100, 2:0, 3:2. This pays 100% of the discount on a customer's first booking, nothing on their second, and 2% on their third. Other bookings use the default compensation percentage.",
   cashbackProinAmount: "Optional Proin cashback earned after the service is completed. It is not added to the current booking; it becomes available for a future booking.",
   cashbackValidityDays: "How many days the cashback Proin remains available after it is awarded. Use 30 for a one-month reward.",
   cashbackTotalBudgetProin: "Total Proin reserved for this campaign's cashback rewards. Example: 1,000 with a ₹10 cashback allows up to 100 rewards, subject to the other limits.",
   salonDiscountBurnMultiplier: "Global multiplier for every new salon-funded discount. Example: 2 means a ₹10 customer discount reserves and deducts 20 Proin from the salon. Existing bookings keep their original reserved amount.",
-  totalPayoutBudget: "Maximum rupee amount this campaign can cost Pritze. Find available capacity in the Discount vault cards above the table.",
+  totalPayoutBudget: "Maximum rupee amount this campaign can cost SalonFe. Find available capacity in the Discount vault cards above the table.",
   perSalonPayoutBudget: "Optional rupee cap per salon. Use 0 when there should be no per-salon cap.",
   perCustomerPayoutBudget: "Optional rupee cap per customer. Use 0 when there should be no per-customer cap.",
   maximumUsesPerCustomer: "Maximum number of bookings one customer can use this campaign on.",
@@ -615,7 +611,6 @@ const proinFieldHelp: Record<string, string> = {
   maximumProinPerBooking: "Maximum Proin that can be used on one booking from this program.",
   maximumRedemptionPercent: "Maximum percentage of the payable booking value that Proin can cover. Example: 25 means at most 25%.",
   stackableWithDiscount: "Whether this Proin can be used together with another discount campaign on the same booking.",
-  salonDeposit: "Yes only for a manual salon program that records money Pritze has already paid the salon. Discounts and first-visit earnings taken from that credit are not paid to the salon again.",
   eligibleSalonIds: "Optional salon document IDs that this program applies to. Leave blank to allow all eligible salons.",
   eligibleServiceIds: "Optional service IDs that this program applies to. Leave blank to allow all eligible services.",
   code: "The coupon code users type, such as WELCOME50 or SALON100. Keep the original safely because the database stores only a protected hash and masked label.",
@@ -628,7 +623,7 @@ const proinFieldHelp: Record<string, string> = {
   accountId: "The customer UID or salon ID receiving a manual Proin grant. Find it in Customers, Salons or Firebase.",
   sourceId: "Support case, campaign note or approval reference for a manual grant.",
   idempotencyKey: "Unique key that prevents accidental duplicate grants. Use something like support-case-123:customer-uid.",
-  paymentMethod: "Choose how Pritze paid the salon: bank transfer, UPI, or cash. Cash still requires a receipt or ledger reference for the audit trail.",
+  paymentMethod: "Choose how SalonFe paid the salon: bank transfer, UPI, or cash. Cash still requires a receipt or ledger reference for the audit trail.",
   paymentReference: "For bank transfer or UPI, enter the completed transaction reference. For cash, enter the cash receipt or ledger reference after payment has been made.",
   paidAtMillis: "Date and time when the external reimbursement payment was completed.",
   amountProin: "For a manual grant, this is the Proin amount to add within the selected program's limit. For a revocation, it is the unused Proin amount to remove from the selected reward lot.",
@@ -669,9 +664,9 @@ const salonFinanceFieldHelp: Record<string, string> = {
   amountProin: "The exact promotional Proin credit to add. The selected manual program supplies its expiry and maximum allowed reward.",
   sourceId: "A short internal note or source reference for this credit, such as a campaign top-up or support case.",
   idempotencyKey: "A unique reference that prevents the same promotional credit from being added twice.",
-  amountInr: "The amount already paid to this salon outside Pritze. It cannot exceed the current pending settlement balance.",
+  amountInr: "The amount already paid to this salon outside SalonFe. It cannot exceed the current pending settlement balance.",
   paymentMethod: "Choose the real-world payment method. Cash requires a cash receipt or ledger reference so the settlement remains auditable.",
-  paymentReference: "Enter the completed bank/UPI transaction reference, or a cash receipt or ledger reference. Pritze does not initiate this transfer.",
+  paymentReference: "Enter the completed bank/UPI transaction reference, or a cash receipt or ledger reference. SalonFe does not initiate this transfer.",
   paidAtMillis: "When the external payment was completed. The payment is allocated against the oldest unsettled booking records first.",
 };
 
@@ -996,8 +991,6 @@ function sanitiseDiscountData(value: unknown): DiscountAdministrationData {
       fundingSource: campaign.fundingSource || "salon_promotion_credits",
       salonPayoutPercent: Number.isFinite(Number(campaign.salonPayoutPercent)) ? Number(campaign.salonPayoutPercent) : (Number(campaign.payoutMultiplier) || 2) * 100,
       salonPayoutPercentByBookingNumber: normaliseBookingPayoutRules(campaign.salonPayoutPercentByBookingNumber),
-      salonFirstVisitEarningPercent: Number(campaign.salonFirstVisitEarningPercent) || 0,
-      salonFirstVisitEarningMaximumAmount: Number(campaign.salonFirstVisitEarningMaximumAmount) || 0,
       cashbackProinAmount: Number(campaign.cashbackProinAmount) || 0,
       cashbackValidityDays: Number(campaign.cashbackValidityDays) || 0,
       cashbackTotalBudgetProin: Number(campaign.cashbackTotalBudgetProin) || 0,
@@ -1120,6 +1113,7 @@ export default function AdminDashboard() {
   const [isLive, setIsLive] = useState(false);
   const [message, setMessage] = useState("");
   const [search, setSearch] = useState("");
+  const [bookingScope, setBookingScope] = useState("live");
   const [statusFilter, setStatusFilter] = useState("all");
   const [salonFilter, setSalonFilter] = useState("all");
   const [typeFilter, setTypeFilter] = useState("all");
@@ -1148,7 +1142,7 @@ export default function AdminDashboard() {
     } catch (error) {
       const text = error instanceof Error ? error.message : "Live data could not be loaded.";
       setIsLive(false);
-      setMessage(text.includes("permission-denied") || text.includes("administrator") ? "This team account is no longer authorized." : "Pritze data could not be loaded. Check the connection and try again.");
+      setMessage(text.includes("permission-denied") || text.includes("administrator") ? "This team account is no longer authorized." : "SalonFe data could not be loaded. Check the connection and try again.");
     } finally {
       setLoading(false);
     }
@@ -1194,14 +1188,15 @@ export default function AdminDashboard() {
   const filteredBookings = useMemo(() => data.bookings.filter((booking) => {
     const salon = salonMap.get(booking.salonId)?.name ?? "";
     const matchesSearch = !normalisedSearch || [booking.id, booking.customerName, booking.customerPhone, booking.serviceName, salon].some((value) => value.toLowerCase().includes(normalisedSearch));
-    return matchesSearch && (statusFilter === "all" || booking.status === statusFilter) && (salonFilter === "all" || booking.salonId === salonFilter) && (typeFilter === "all" || (typeFilter === "instant") === booking.isInstant);
-  }).sort((a, b) => b.startMillis - a.startMillis), [data.bookings, normalisedSearch, salonFilter, salonMap, statusFilter, typeFilter]);
+    const matchesScope = bookingScope === "history" || (bookingScope === "today" ? booking.startMillis >= operationalDayStart(currentTime) && booking.startMillis < operationalDayStart(currentTime) + day : isCurrentOperationalBooking(booking, currentTime));
+    return matchesScope && matchesSearch && (statusFilter === "all" || booking.status === statusFilter) && (salonFilter === "all" || booking.salonId === salonFilter) && (typeFilter === "all" || (typeFilter === "instant") === booking.isInstant);
+  }).sort((a, b) => b.startMillis - a.startMillis), [data.bookings, bookingScope, currentTime, normalisedSearch, salonFilter, salonMap, statusFilter, typeFilter]);
 
   const todayBookings = data.bookings.filter((booking) => isToday(booking.startMillis));
   const arrivingSoon = data.bookings.filter((booking) => booking.status === "confirmed" && booking.startMillis >= currentTime && booking.startMillis <= currentTime + 30 * minute);
-  const activeBookings = data.bookings.filter((booking) => booking.status === "inProgress");
-  const attentionBookings = data.bookings.filter((booking) => (booking.status === "pending" && booking.isInstant) || (booking.status === "confirmed" && booking.startMillis < currentTime - 5 * minute));
-  const activeOperationalAlerts = data.operationalAlerts.filter((alert) => alert.status === "active");
+  const activeBookings = data.bookings.filter((booking) => booking.status === "inProgress" && isCurrentOperationalBooking(booking, currentTime));
+  const attentionBookings = data.bookings.filter((booking) => isCurrentOperationalBooking(booking, currentTime) && ((booking.status === "pending" && booking.isInstant) || (booking.status === "confirmed" && booking.startMillis < currentTime - 5 * minute)));
+  const activeOperationalAlerts = data.operationalAlerts.filter((alert) => alert.status === "active" && isCurrentOperationalAlert(alert, data.bookings, data.salons, data.automationRules, currentTime));
   const completedValue = data.bookings.filter((booking) => booking.status === "completed").reduce((sum, booking) => sum + booking.servicePrice, 0);
   const dateLabel = new Intl.DateTimeFormat("en-IN", { weekday: "long", day: "numeric", month: "long", timeZone: "Asia/Kolkata" }).format(currentTime).toUpperCase();
 
@@ -1235,7 +1230,7 @@ export default function AdminDashboard() {
     const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
     const link = document.createElement("a");
     link.href = url;
-    link.download = `pritze-bookings-${new Date().toISOString().slice(0, 10)}.csv`;
+    link.download = `salonfe-bookings-${new Date().toISOString().slice(0, 10)}.csv`;
     link.click();
     URL.revokeObjectURL(url);
   }
@@ -1313,7 +1308,7 @@ export default function AdminDashboard() {
   return (
     <div className="app-shell">
       <aside className="sidebar">
-        <button className="brand" onClick={() => openView("overview")}><span className="brand-mark">P</span><span><strong>Pritze</strong><small>Control Center</small></span></button>
+        <button className="brand" onClick={() => openView("overview")}><span className="brand-mark"><img src="/salonfe-icon.png" alt="" /></span><span><strong>SalonFe</strong><small>Control Center</small></span></button>
         <nav className="sidebar-menu" aria-label="Primary navigation">
           {navItems.filter((item) => item.id !== "guide").map((item) => <button className={`nav-item ${view === item.id ? "active" : ""}`} key={item.id} onClick={() => openView(item.id)}><span>{item.icon}</span>{item.label}{item.id === "bookings" && attentionBookings.length > 0 ? <b>{attentionBookings.length}</b> : item.id === "intelligence" && activeOperationalAlerts.length > 0 ? <b>{activeOperationalAlerts.length}</b> : null}</button>)}
         </nav>
@@ -1328,20 +1323,20 @@ export default function AdminDashboard() {
           <label className="search"><span>⌕</span><input value={search} onChange={(event) => setSearch(event.target.value)} aria-label="Search" placeholder="Search booking, customer or salon" />{search ? <button onClick={() => setSearch("")} aria-label="Clear search">×</button> : null}</label>
           <div className="admin-user">
             {loading ? <span className="sync-label">Refreshing…</span> : null}
-            <><button className="avatar" title="Sign out" onClick={() => signOut(getFirebaseServices().auth)}>{initials(user.displayName || "Admin")}</button><div><strong>{user.displayName || "Pritze Admin"}</strong><span>Platform administrator</span></div></>
+            <><button className="avatar" title="Sign out" onClick={() => signOut(getFirebaseServices().auth)}>{initials(user.displayName || "Admin")}</button><div><strong>{user.displayName || "SalonFe Admin"}</strong><span>Platform administrator</span></div></>
           </div>
         </header>
 
         <div className="content">
           <section className="welcome-row">
-            <div><p className="eyebrow">{dateLabel}</p><h1>{view === "overview" ? "Good morning, Admin" : navItems.find((item) => item.id === view)?.label}</h1><p>{view === "overview" ? "Here’s what needs your attention across Pritze today." : viewSubtitle(view)}</p></div>
+            <div><p className="eyebrow">{dateLabel}</p><h1>{view === "overview" ? "Good morning, Admin" : navItems.find((item) => item.id === view)?.label}</h1><p>{view === "overview" ? "Here’s what needs your attention across SalonFe today." : viewSubtitle(view)}</p></div>
             <button className="export-button" onClick={exportBookings}>⇩ Export bookings</button>
           </section>
 
           {view === "overview" && <Overview data={data} todayBookings={todayBookings} arrivingSoon={arrivingSoon} activeBookings={activeBookings} attentionBookings={attentionBookings} completedValue={completedValue} salonMap={salonMap} barberMap={barberMap} currentTime={currentTime} onOpenBooking={setSelectedBooking} onOpenView={openView} />}
           {view === "intelligence" && <IntelligenceView data={data} salonMap={salonMap} currentTime={currentTime} canOperate={Boolean(user && isLive)} onAdminAction={openAdminAction} onOpenBooking={(bookingId) => { const booking = data.bookings.find((item) => item.id === bookingId); if (booking) setSelectedBooking(booking); }} />}
           {view === "arrivals" && <ArrivalsView data={data} salonMap={salonMap} currentTime={currentTime} onOpenBooking={(booking) => setSelectedBooking(booking)} />}
-          {view === "bookings" && <BookingsView bookings={filteredBookings} salons={data.salons} salonMap={salonMap} barberMap={barberMap} currentTime={currentTime} statusFilter={statusFilter} salonFilter={salonFilter} typeFilter={typeFilter} setStatusFilter={setStatusFilter} setSalonFilter={setSalonFilter} setTypeFilter={setTypeFilter} onOpenBooking={setSelectedBooking} />}
+          {view === "bookings" && <BookingsView bookingScope={bookingScope} setBookingScope={setBookingScope} bookings={filteredBookings} salons={data.salons} salonMap={salonMap} barberMap={barberMap} currentTime={currentTime} statusFilter={statusFilter} salonFilter={salonFilter} typeFilter={typeFilter} setStatusFilter={setStatusFilter} setSalonFilter={setSalonFilter} setTypeFilter={setTypeFilter} onOpenBooking={setSelectedBooking} />}
           {view === "customers" && <CustomersView customers={data.customers} bookings={data.bookings} search={normalisedSearch} canOperate={Boolean(user && isLive)} onAdminAction={openAdminAction} />}
           {view === "salons" && <><SalonApprovalRequests salons={data.salons} search={normalisedSearch} canOperate={Boolean(user && isLive)} onAdminAction={openAdminAction} /><SalonsView salons={data.salons} bookings={data.bookings} barbers={data.barbers} settlements={data.settlements} settlementPayments={data.settlementPayments} wallets={data.wallets} proinWallets={proinData.wallets} proinPrograms={proinData.programs} salonCreditLimitAmount={discountData.vault.salonCreditLimitAmount} search={normalisedSearch} canOperate={Boolean(user && isLive)} onAdminAction={openAdminAction} /><SalonCampaignCards salons={data.salons} data={discountData} search={normalisedSearch} onOpenDiscounts={() => openView("discounts")} /></>}
           {view === "barbers" && <BarbersView barbers={data.barbers} bookings={data.bookings} joinRequests={data.joinRequests} salonMap={salonMap} search={normalisedSearch} canOperate={Boolean(user && isLive)} onAdminAction={openAdminAction} />}
@@ -1397,7 +1392,7 @@ function viewSubtitle(view: View) {
     salons: "Edit salon listings, services, availability, promotional credit and external settlement from each salon card.",
     barbers: "Team availability, specialities and completed workload.",
     reviews: "Salon feedback and customer ratings linked to completed visits.",
-    settlements: "Reconcile Pritze payouts against external salon payments.",
+    settlements: "Reconcile SalonFe payouts against external salon payments.",
     discounts: "Create targeted offers, control the promotional vault and monitor burn by campaign, salon and customer.",
     proin: "Control unused promotional rewards and record externally completed Proin reimbursements.",
     reports: "Read-only decision support based on completed Firebase records.",
@@ -1417,7 +1412,7 @@ function GuideView({ onOpenView }: { onOpenView: (view: View) => void }) {
     { view: "salons", icon: "◇", name: "Salons", description: "Approve salons, manage their public listing and team, then handle their promotional credit and external settlements in one card.", action: "Manage salons" },
     { view: "barbers", icon: "♙", name: "Barbers", description: "Team availability, specialties, completed workload and salon join requests.", action: "View barbers" },
     { view: "reviews", icon: "☆", name: "Reviews", description: "Read salon feedback and customer ratings linked to completed visits.", action: "View reviews" },
-    { view: "settlements", icon: "₹", name: "Settlements", description: "Record Pritze payouts only after the salon has actually been paid outside the app.", action: "View settlements" },
+    { view: "settlements", icon: "₹", name: "Settlements", description: "Record SalonFe payouts only after the salon has actually been paid outside the app.", action: "View settlements" },
     { view: "discounts", icon: "%", name: "Discount control", description: "Create targeted discounts, set the real-money vault and monitor reserved and realized burn.", action: "Manage discounts" },
     { view: "proin", icon: "◉", name: "Proin operations", description: "Configure referral, coupon and promotional rewards, their expiry, budgets and reimbursement evidence.", action: "Manage Proin" },
     { view: "reports", icon: "↗", name: "Reports", description: "Read-only business summaries based on completed Firebase records.", action: "Open reports" },
@@ -1427,7 +1422,7 @@ function GuideView({ onOpenView }: { onOpenView: (view: View) => void }) {
   return <div className="guide-page">
     <section className="guide-hero">
       <div>
-        <p className="eyebrow">PRITZE TEAM HANDBOOK</p>
+        <p className="eyebrow">SALONFE TEAM HANDBOOK</p>
         <h2>Run the Control Center with confidence</h2>
         <p>This page explains what every area does, how to make controlled changes and how discounts, Proin and external salon payouts fit together.</p>
         <div className="guide-hero-actions">
@@ -1477,8 +1472,8 @@ function GuideView({ onOpenView }: { onOpenView: (view: View) => void }) {
         <article><b>05</b><div><strong>Use the salon card as its control page</strong><p>Each Salon card shows its Salon ID, private payout details, opening controls, promotional credit balance, the salon-specific negative credit limit, pending settlement and settled history.</p></div></article>
         <article><b>06</b><div><strong>Manage the salon’s profile, services and team</strong><p>Select <em>Edit profile</em> for public details and opening hours. Open <em>Manage all services</em> to change prices, duration and instant availability. Open <em>Manage team</em> to update the salon’s barber details and availability without leaving Salons.</p></div></article>
         <article><b>07</b><div><strong>Target a campaign to the right salon</strong><p>In Discount control, choose salon names from <em>Eligible salons</em>; you no longer need to look up or type IDs. Use <em>3</em> in “Show only on these customer booking numbers” for a third-booking offer.</p></div></article>
-        <article><b>08</b><div><strong>Record a Pritze deposit when you pay a salon in advance</strong><p>First create an active manual salon-credit Proin program in <em>Proin operations</em> with <em>Records a Pritze deposit</em> set to Yes. Then use <em>Record Pritze deposit</em> on the salon card and enter the amount paid. Salon-funded discounts and first-visit earnings are taken from this balance, so they are not paid to the salon again; only anything beyond the deposit becomes a pending settlement.</p></div></article>
-        <article><b>09</b><div><strong>Record a payment or settle the full balance</strong><p>After paying a salon outside Pritze, use <em>Record external payment</em> for a partial amount or <em>Settle full amount</em> to allocate the exact pending balance to the oldest unpaid booking records. Choose Bank transfer, UPI or Cash. Bank/UPI require the completed transaction reference; Cash requires the cash receipt or ledger reference. Enter the reason; the balance then reduces immediately.</p></div></article>
+        <article><b>08</b><div><strong>Add promotional credit when needed</strong><p>First create an active manual salon-credit Proin program in <em>Proin operations</em>. Then use <em>Add promotional credit</em> on the salon card, select that program and enter the Proin amount. This adds promotional spending balance; it does not pay cash or reduce a settlement.</p></div></article>
+        <article><b>09</b><div><strong>Record a payment or settle the full balance</strong><p>After paying a salon outside SalonFe, use <em>Record external payment</em> for a partial amount or <em>Settle full amount</em> to allocate the exact pending balance to the oldest unpaid booking records. Choose Bank transfer, UPI or Cash. Bank/UPI require the completed transaction reference; Cash requires the cash receipt or ledger reference. Enter the reason; the balance then reduces immediately.</p></div></article>
         <article><b>10</b><div><strong>Verify the audit trail</strong><p>Every approval, credit-limit change, credit grant and settlement requires a reason. Open <em>Admin activity</em> afterward to confirm who made the change, which record changed and why.</p></div></article>
       </div>
     </section>
@@ -1499,22 +1494,22 @@ function GuideView({ onOpenView }: { onOpenView: (view: View) => void }) {
       <div className="guide-playbook-intro">
         <p className="eyebrow">PLAYBOOK 01</p>
         <h2>How to set a discount</h2>
-        <p>A discount changes what the customer pays and creates a real Pritze payout liability to the salon. Create it inactive first, review the exposure, then activate it.</p>
+        <p>A discount changes what the customer pays and creates a real SalonFe payout liability to the salon. Create it inactive first, review the exposure, then activate it.</p>
         <button onClick={() => onOpenView("discounts")}>Open Discount control</button>
       </div>
       <div className="guide-steps">
         <article><b>01</b><div><strong>Set the finance controls</strong><p>Select <em>Change finance controls</em> and enter the maximum approved real-money exposure plus the legacy salon-funded burn fallback. New campaigns should set their own salon compensation percentage instead: 100% gives the salon ₹10 for a ₹10 customer discount, while 0% gives no salon compensation. Existing reserved bookings retain their original amount.</p></div></article>
         <article><b>02</b><div><strong>Choose automatic, hidden coupon or visible offer</strong><p>For a quick safe test, click <em>Create automatic draft</em>, <em>Create hidden coupon draft</em> or <em>Create visible checkout offer draft</em>. For a custom setup, select <em>New discount / voucher</em>. Set a maximum customer discount in rupees, then choose the salon compensation percentage. Use booking rules such as <em>1:100, 2:0, 3:2</em> when compensation should change by the customer&apos;s booking number. Hidden typed-code coupons can be verbally shared and work only when typed by the customer. Visible checkout offers appear as a small tappable row below the final price before the customer books.</p></div></article>
         <article><b>03</b><div><strong>Define the offer and payout</strong><p>Choose percentage off or a fixed rupee discount. Set the salon compensation percentage on each campaign; only older campaigns without that setting use the Finance controls fallback. Optionally add Proin cashback, its validity and cashback budget. The cashback is awarded after service completion for a future booking.</p></div></article>
-        <article><b>04</b><div><strong>Build one multi-booking journey</strong><p>Select <em>New journey campaign</em>, choose whether booking numbers count across Pritze or only at one salon, then add reward rows. For example: booking 1 discount only, booking 2 discount + Proin, booking 3 Proin only, and booking 10 discount again. These milestone labels remain private to administrators.</p></div></article>
+        <article><b>04</b><div><strong>Build one multi-booking journey</strong><p>Select <em>New journey campaign</em>, choose whether booking numbers count across SalonFe or only at one salon, then add reward rows. For example: booking 1 discount only, booking 2 discount + Proin, booking 3 Proin only, and booking 10 discount again. These milestone labels remain private to administrators.</p></div></article>
         <article><b>05</b><div><strong>Target all salons or one salon</strong><p>Select eligible salon names directly—leaving all unchecked targets every eligible salon. From <em>Salons</em>, select <em>Create journey campaign</em> on a salon card to start a campaign already restricted to that salon.</p></div></article>
         <article><b>06</b><div><strong>Review, version and activate</strong><p>Check dates, caps, Proin budget, maximum milestone rewards per customer and Terms version. Save it inactive first, test the rules, then reopen it and change Active to Yes.</p></div></article>
         <article><b>07</b><div><strong>Monitor the burn</strong><p>Watch Available, Reserved and Realized burn, plus Burn by salon and Burn by customer. Edit the campaign to pause it if exposure is higher than expected.</p></div></article>
       </div>
       <div className="guide-example">
         <div><span>Worked example</span><strong>₹100 service · 10% off · 2× payout</strong></div>
-        <div className="guide-example-math"><p><small>Customer pays</small><b>₹90</b></p><i>+</i><p><small>Pritze owes salon</small><b>₹20</b></p><i>=</i><p><small>Salon receives</small><b>₹110</b></p></div>
-        <p>The ₹10 customer discount multiplied by 2 creates ₹20 of Pritze payout exposure. The customer pays at the salon counter; Pritze settles its amount separately.</p>
+        <div className="guide-example-math"><p><small>Customer pays</small><b>₹90</b></p><i>+</i><p><small>SalonFe owes salon</small><b>₹20</b></p><i>=</i><p><small>Salon receives</small><b>₹110</b></p></div>
+        <p>The ₹10 customer discount multiplied by 2 creates ₹20 of SalonFe payout exposure. The customer pays at the salon counter; SalonFe settles its amount separately.</p>
       </div>
     </section>
 
@@ -1549,7 +1544,7 @@ function GuideView({ onOpenView }: { onOpenView: (view: View) => void }) {
         </ol>
       </article>
       <article className="panel guide-safety">
-        <div className="guide-card-heading"><span>!</span><div><p className="eyebrow">IMPORTANT</p><h2>Controls that protect Pritze</h2></div></div>
+        <div className="guide-card-heading"><span>!</span><div><p className="eyebrow">IMPORTANT</p><h2>Controls that protect SalonFe</h2></div></div>
         <ul>
           <li>Never share one User ID between team members; separate IDs make the audit trail useful.</li>
           <li>Save new campaigns and programs inactive first.</li>
@@ -1562,7 +1557,7 @@ function GuideView({ onOpenView }: { onOpenView: (view: View) => void }) {
     </section>
 
     <section className="guide-help-footer">
-      <div><span>?</span><p><strong>Not sure what to do?</strong><small>Do not guess on a financial or account action. Inspect the record, preserve the current state and ask the authorized Pritze administrator.</small></p></div>
+      <div><span>?</span><p><strong>Not sure what to do?</strong><small>Do not guess on a financial or account action. Inspect the record, preserve the current state and ask the authorized SalonFe administrator.</small></p></div>
       <button onClick={() => onOpenView("activity")}>Check Admin activity</button>
     </section>
   </div>;
@@ -1589,7 +1584,7 @@ function noteAction(targetType: AdminNote["targetType"], targetId: string, label
 }
 
 function Overview({ data, todayBookings, arrivingSoon, activeBookings, attentionBookings, completedValue, salonMap, barberMap, currentTime, onOpenBooking, onOpenView }: { data: AdminData; todayBookings: Booking[]; arrivingSoon: Booking[]; activeBookings: Booking[]; attentionBookings: Booking[]; completedValue: number; onOpenView: (view: View) => void } & BookingMaps) {
-  const liveBookings = [...data.bookings].filter((booking) => ["pending", "confirmed", "inProgress"].includes(booking.status)).sort((a, b) => a.startMillis - b.startMillis).slice(0, 6);
+  const liveBookings = [...data.bookings].filter((booking) => isCurrentOperationalBooking(booking, currentTime)).sort((a, b) => a.startMillis - b.startMillis).slice(0, 6);
   return <>
     <section className="metric-grid" aria-label="Today’s metrics">
       <MetricCard label="Today’s bookings" value={String(todayBookings.length)} detail={`${data.salons.filter((salon) => salon.isOpen).length} salons currently open`} tone="gold" />
@@ -1600,7 +1595,7 @@ function Overview({ data, todayBookings, arrivingSoon, activeBookings, attention
     <section className="attention-card"><div className="attention-icon">!</div><div><strong>{attentionBookings.length ? `${attentionBookings.length} items need attention` : "No urgent items"}</strong><p>{attentionBookings.length ? "Pending instant requests and overdue arrivals are waiting for review." : "No instant requests or overdue arrivals require intervention."}</p></div><button onClick={() => onOpenView("bookings")}>Review now <span>→</span></button></section>
     <section className="overview-split">
       <div className="panel live-panel"><PanelHeader title="Live bookings" subtitle="Customers arriving soon and services in progress." action="View all" onAction={() => onOpenView("bookings")} live /><BookingTable bookings={liveBookings} salonMap={salonMap} barberMap={barberMap} currentTime={currentTime} onOpenBooking={onOpenBooking} /></div>
-      <aside className="panel pulse-panel"><PanelHeader title="Network pulse" subtitle="Today across Pritze" /><div className="pulse-list"><Pulse label="Open salons" value={`${data.salons.filter((salon) => salon.isOpen).length}/${data.salons.length}`} /><Pulse label="Active barbers" value={`${data.barbers.filter((barber) => barber.isActive).length}/${data.barbers.length}`} /><Pulse label="Completed-service value" value={formatMoney(completedValue)} /><Pulse label="Average salon rating" value={`${average(data.salons.map((salon) => salon.rating)).toFixed(1)} ★`} /></div></aside>
+      <aside className="panel pulse-panel"><PanelHeader title="Network pulse" subtitle="Today across SalonFe" /><div className="pulse-list"><Pulse label="Open salons" value={`${data.salons.filter((salon) => salon.isOpen).length}/${data.salons.length}`} /><Pulse label="Active barbers" value={`${data.barbers.filter((barber) => barber.isActive).length}/${data.barbers.length}`} /><Pulse label="Completed-service value" value={formatMoney(completedValue)} /><Pulse label="Average salon rating" value={`${average(data.salons.map((salon) => salon.rating)).toFixed(1)} ★`} /></div></aside>
     </section>
   </>;
 }
@@ -1624,14 +1619,14 @@ function BookingTable({ bookings, salonMap, barberMap, currentTime, onOpenBookin
   </div>)}</div>;
 }
 
-function BookingsView({ bookings, salons, salonMap, barberMap, currentTime, statusFilter, salonFilter, typeFilter, setStatusFilter, setSalonFilter, setTypeFilter, onOpenBooking }: { bookings: Booking[]; salons: Salon[]; statusFilter: string; salonFilter: string; typeFilter: string; setStatusFilter: (value: string) => void; setSalonFilter: (value: string) => void; setTypeFilter: (value: string) => void } & BookingMaps) {
-  return <section className="panel main-panel"><div className="filter-bar"><label>Status<select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option value="all">All statuses</option><option value="pending">Pending</option><option value="confirmed">Confirmed</option><option value="inProgress">In service</option><option value="completed">Completed</option><option value="cancelled">Cancelled</option><option value="rejected">Rejected</option></select></label><label>Salon<select value={salonFilter} onChange={(event) => setSalonFilter(event.target.value)}><option value="all">All salons</option>{salons.map((salon) => <option key={salon.id} value={salon.id}>{salon.name}</option>)}</select></label><label>Booking type<select value={typeFilter} onChange={(event) => setTypeFilter(event.target.value)}><option value="all">Instant & scheduled</option><option value="instant">Instant</option><option value="scheduled">Scheduled</option></select></label><span className="result-count">{bookings.length} results</span></div><BookingTable bookings={bookings} salonMap={salonMap} barberMap={barberMap} currentTime={currentTime} onOpenBooking={onOpenBooking} /></section>;
+function BookingsView({ bookingScope, setBookingScope, bookings, salons, salonMap, barberMap, currentTime, statusFilter, salonFilter, typeFilter, setStatusFilter, setSalonFilter, setTypeFilter, onOpenBooking }: { bookingScope: string; setBookingScope: (value: string) => void; bookings: Booking[]; salons: Salon[]; statusFilter: string; salonFilter: string; typeFilter: string; setStatusFilter: (value: string) => void; setSalonFilter: (value: string) => void; setTypeFilter: (value: string) => void } & BookingMaps) {
+  return <section className="panel main-panel"><div className="filter-bar"><label>View<select value={bookingScope} onChange={(event) => setBookingScope(event.target.value)}><option value="live">Live &amp; upcoming</option><option value="today">Today</option><option value="history">History / all bookings</option></select></label><label>Status<select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option value="all">All statuses</option><option value="pending">Pending</option><option value="confirmed">Confirmed</option><option value="inProgress">In service</option><option value="completed">Completed</option><option value="cancelled">Cancelled</option><option value="rejected">Rejected</option></select></label><label>Salon<select value={salonFilter} onChange={(event) => setSalonFilter(event.target.value)}><option value="all">All salons</option>{salons.map((salon) => <option key={salon.id} value={salon.id}>{salon.name}</option>)}</select></label><label>Booking type<select value={typeFilter} onChange={(event) => setTypeFilter(event.target.value)}><option value="all">Instant & scheduled</option><option value="instant">Instant</option><option value="scheduled">Scheduled</option></select></label><span className="result-count">{bookings.length} results</span></div><BookingTable bookings={bookings} salonMap={salonMap} barberMap={barberMap} currentTime={currentTime} onOpenBooking={onOpenBooking} /></section>;
 }
 
 function ArrivalsView({ data, salonMap, currentTime, onOpenBooking }: { data: AdminData; salonMap: Map<string, Salon>; currentTime: number; onOpenBooking: (booking: Booking) => void }) {
   const sessionMap = new Map(data.arrivalSessions.map((session) => [session.bookingId, session]));
   const visible = data.bookings
-    .filter((booking) => ["confirmed", "inProgress"].includes(booking.status))
+    .filter((booking) => ["confirmed", "inProgress"].includes(booking.status) && isCurrentOperationalBooking(booking, currentTime))
     .filter((booking) => (booking.arrivalStatus && booking.arrivalStatus !== "notStarted") || sessionMap.has(booking.id))
     .sort((left, right) => left.startMillis - right.startMillis);
   const activeSharing = data.arrivalSessions.filter((session) => session.sharingActive && session.expiresAtMillis > currentTime);
@@ -1675,7 +1670,7 @@ function editableIndianPhone(value: string) {
 function customerProfileAction(customer: Customer): AdminAction {
   return {
     title: `Edit ${customer.name}`,
-    description: "Update the customer profile shown throughout Pritze. Sign-in provider identities remain protected, and every saved change is audited.",
+    description: "Update the customer profile shown throughout SalonFe. Sign-in provider identities remain protected, and every saved change is audited.",
     confirmLabel: "Save customer",
     callableName: "updateCustomerProfileAsAdmin",
     payload: { customerUid: customer.id },
@@ -1790,13 +1785,11 @@ function journeyCampaignAction(salonMap: Map<string, Salon>, campaign?: Discount
       { key: "name", label: "Campaign name", initialValue: campaign?.name ?? (targetSalon ? `${targetSalon.name} booking journey` : "Customer booking journey") },
       { key: "active", label: "Campaign active", type: "select", valueKind: "boolean", initialValue: String(campaign?.active ?? false), options: [{ label: "No", value: "false" }, { label: "Yes", value: "true" }] },
       { key: "priority", label: "Priority (higher wins)", type: "number", min: 0, initialValue: String(campaign?.priority ?? 100) },
-      { key: "journeyCountScope", label: "Booking count scope", type: "select", initialValue: campaign?.journeyCountScope ?? (targetSalon ? "salon" : "platform"), options: [{ label: "All completed Pritze bookings", value: "platform" }, { label: "Completed bookings at this salon", value: "salon" }] },
+      { key: "journeyCountScope", label: "Booking count scope", type: "select", initialValue: campaign?.journeyCountScope ?? (targetSalon ? "salon" : "platform"), options: [{ label: "All completed SalonFe bookings", value: "platform" }, { label: "Completed bookings at this salon", value: "salon" }] },
       { key: "journeyMilestones", label: "Booking reward milestones", type: "journey-milestones", valueKind: "journey-milestones", initialValue: JSON.stringify(milestones) },
       { key: "fundingSource", label: "Campaign funding source", type: "select", initialValue: campaign?.fundingSource ?? "salon_promotion_credits", options: [{ label: "Salon promotional credits", value: "salon_promotion_credits" }, { label: "Platform discount vault", value: "platform_vault" }] },
       { key: "salonPayoutPercent", label: "Salon compensation (% of customer discount)", type: "number", min: 0, max: 1000, step: 0.01, initialValue: String(campaign?.salonPayoutPercent ?? 100) },
       { key: "salonPayoutPercentByBookingNumber", label: "Compensation by customer booking number (optional)", type: "textarea", valueKind: "booking-payout-rules", placeholder: "1:100, 2:0, 10:50", required: false, initialValue: bookingPayoutRulesText(campaign?.salonPayoutPercentByBookingNumber) },
-      { key: "salonFirstVisitEarningPercent", label: "Salon first-visit earning (% of bill)", type: "number", min: 0, max: 100, step: 0.01, initialValue: String(campaign ? campaign.salonFirstVisitEarningPercent ?? 0 : 10) },
-      { key: "salonFirstVisitEarningMaximumAmount", label: "Salon first-visit earning cap (₹, 0 = no cap)", type: "number", min: 0, initialValue: String(campaign ? campaign.salonFirstVisitEarningMaximumAmount ?? 0 : 50) },
       { key: "cashbackTotalBudgetProin", label: "Total Proin reward budget", type: "number", min: 0, initialValue: String(campaign?.cashbackTotalBudgetProin ?? 10000) },
       { key: "totalPayoutBudget", label: "Total salon-compensation budget (₹)", type: "number", min: 0, initialValue: String(campaign?.totalPayoutBudget ?? 10000) },
       { key: "perSalonPayoutBudget", label: "Per-salon payout cap (₹, 0 = no cap)", type: "number", min: 0, initialValue: String(campaign?.perSalonPayoutBudget ?? 0) },
@@ -1820,7 +1813,7 @@ function journeyCampaignAction(salonMap: Map<string, Salon>, campaign?: Discount
 function SalonsView({ salons, bookings, barbers, settlements, settlementPayments, wallets, proinWallets, proinPrograms, salonCreditLimitAmount, search, canOperate, onAdminAction }: { salons: Salon[]; bookings: Booking[]; barbers: Barber[]; settlements: Settlement[]; settlementPayments: SalonSettlementPayment[]; wallets: SalonWallet[]; proinWallets: ProinWallet[]; proinPrograms: ProinProgram[]; salonCreditLimitAmount: number; search: string } & AdminControlProps) {
   const visible = salons.filter((salon) => !search || [salon.name, salon.ownerName, salon.address].some((value) => value.toLowerCase().includes(search)));
   const salonMap = new Map(salons.map((salon) => [salon.id, salon]));
-  const depositPrograms = proinPrograms.filter((program) => program.sourceType === "manual" && program.walletType === "salon_promotion_credits" && program.salonDeposit);
+  const manualSalonPrograms = proinPrograms.filter((program) => program.sourceType === "manual" && program.walletType === "salon_promotion_credits");
 
   function copySalonId(salon: Salon) {
     void navigator.clipboard?.writeText(salon.id);
@@ -1841,9 +1834,9 @@ function SalonsView({ salons, bookings, barbers, settlements, settlementPayments
     const paymentHistory = settlementPayments.filter((payment) => payment.salonId === salon.id).sort((left, right) => right.paidAtMillis - left.paidAtMillis).slice(0, 5);
     const salonControl = (control: string, value: boolean, label: string, danger = false): AdminAction => ({ title: `${label}: ${salon.name}`, description: "This changes salon availability for customers and is recorded in the administrator audit log.", confirmLabel: label, callableName: "updateSalonControlAsAdmin", payload: { salonId: salon.id, control, value }, fields: [reasonField], tone: danger ? "danger" : "default" });
     const creditLimitAction: AdminAction = { title: `Change ${salon.name}'s promotional credit limit`, description: "This is this salon's own maximum negative promotional Proin balance. It limits future salon-funded campaign burn and does not change another salon's limit.", confirmLabel: "Save credit limit", callableName: "setSalonPromotionCreditLimitAsAdmin", payload: { salonId: salon.id }, fields: [{ key: "creditLimitProin", label: "Promotional credit limit (Proin)", type: "number", min: 0, initialValue: String(creditLimit) }, reasonField] };
-    const addCreditAction: AdminAction = { title: `Record a Pritze deposit for ${salon.name}`, description: "Record money Pritze has already paid this salon. Discounts and first-visit earnings on salon-funded offers are taken from this balance first, and nothing is owed to the salon again for them.", confirmLabel: "Record deposit", callableName: "grantProinAsAdmin", payload: { accountId: salon.id, walletType: "salon_promotion_credits" }, fields: [{ key: "programId", label: "Deposit program", type: "select", options: depositPrograms.map((program) => ({ label: program.name, value: program.programId })) }, { key: "amountProin", label: "Deposit amount (₹)", type: "number", min: 1 }, { key: "sourceId", label: "Payment reference", placeholder: "UPI or bank reference for the deposit" }, { key: "idempotencyKey", label: "Unique reference", placeholder: "salon-deposit-oct-001" }, reasonField] };
+    const addCreditAction: AdminAction = { title: `Add promotional credit to ${salon.name}`, description: "Add a recorded Proin credit to this salon. The chosen manual program controls validity and its maximum reward. This does not pay cash to the salon.", confirmLabel: "Add promotional credit", callableName: "grantProinAsAdmin", payload: { accountId: salon.id, walletType: "salon_promotion_credits" }, fields: [{ key: "programId", label: "Manual salon credit program", type: "select", options: manualSalonPrograms.map((program) => ({ label: program.name, value: program.programId })) }, { key: "amountProin", label: "Credit to add (Proin)", type: "number", min: 1 }, { key: "sourceId", label: "Credit note or source ID", placeholder: "promotion-top-up-sep" }, { key: "idempotencyKey", label: "Unique reference", placeholder: "salon-credit-sep-001" }, reasonField] };
     const referralApprovalAction: AdminAction = { title: `${salon.proinReferralApproved ? "Stop" : "Approve"} referral rewards for ${salon.name}`, description: salon.proinReferralApproved ? "Referral Proin that involves this salon will wait until it is approved again. Rewards already granted are not changed." : "Allows referral Proin that involves this salon: rewards it earns as an inviter, and the salon referral that brought it in once it completes its first booking. This is separate from listing approval and is recorded in the administrator audit log.", confirmLabel: salon.proinReferralApproved ? "Stop referral rewards" : "Approve referral rewards", callableName: "updateSalonControlAsAdmin", payload: { salonId: salon.id, control: "proinReferralApproved", value: !salon.proinReferralApproved }, fields: [reasonField] };
-    const settlementAction = (amountInr: number, settleAll = false): AdminAction => ({ title: `${settleAll ? "Settle full pending amount for" : "Record payment to"} ${salon.name}`, description: `Record a payment that was already made outside Pritze. ${settleAll ? "The full current pending balance will be allocated to the oldest outstanding booking records and reduced to zero." : "You may record any amount up to the current pending balance."} Choose Bank transfer, UPI, or Cash and retain its reference for the audit trail.`, confirmLabel: settleAll ? "Record full settlement" : "Record payment", callableName: "recordSalonSettlementPaymentAsAdmin", payload: { salonId: salon.id }, fields: [{ key: "amountInr", label: "Amount paid outside Pritze (₹)", type: "number", min: 0.01, step: 0.01, initialValue: String(Math.max(0, Math.round(amountInr * 100) / 100)) }, { key: "paymentMethod", label: "Payment method", type: "select", initialValue: "bank_transfer", options: [{ label: "Bank transfer", value: "bank_transfer" }, { label: "UPI", value: "upi" }, { label: "Cash", value: "cash" }] }, { key: "paymentReference", label: "Transaction, receipt or ledger reference", placeholder: "For cash, enter the cash receipt or ledger reference" }, { key: "paidAtMillis", label: "Payment completed at", type: "datetime-local", initialValue: dateTimeLocalValue(Date.now()) }, reasonField] });
+    const settlementAction = (amountInr: number, settleAll = false): AdminAction => ({ title: `${settleAll ? "Settle full pending amount for" : "Record payment to"} ${salon.name}`, description: `Record a payment that was already made outside SalonFe. ${settleAll ? "The full current pending balance will be allocated to the oldest outstanding booking records and reduced to zero." : "You may record any amount up to the current pending balance."} Choose Bank transfer, UPI, or Cash and retain its reference for the audit trail.`, confirmLabel: settleAll ? "Record full settlement" : "Record payment", callableName: "recordSalonSettlementPaymentAsAdmin", payload: { salonId: salon.id }, fields: [{ key: "amountInr", label: "Amount paid outside SalonFe (₹)", type: "number", min: 0.01, step: 0.01, initialValue: String(Math.max(0, Math.round(amountInr * 100) / 100)) }, { key: "paymentMethod", label: "Payment method", type: "select", initialValue: "bank_transfer", options: [{ label: "Bank transfer", value: "bank_transfer" }, { label: "UPI", value: "upi" }, { label: "Cash", value: "cash" }] }, { key: "paymentReference", label: "Transaction, receipt or ledger reference", placeholder: "For cash, enter the cash receipt or ledger reference" }, { key: "paidAtMillis", label: "Payment completed at", type: "datetime-local", initialValue: dateTimeLocalValue(Date.now()) }, reasonField] });
 
     return <article className={`salon-card phase-two-card ${salon.adminSuspended ? "suspended" : ""}`} key={salon.id}>
       <div className="salon-card-top"><div className="salon-monogram">{initials(salon.name)}</div><span className={`open-state ${salon.adminSuspended ? "closed" : salon.isOpen ? "open" : "closed"}`}>{salon.adminSuspended ? "Suspended" : salon.isOpen ? "Open" : "Closed"}</span></div>
@@ -1853,7 +1846,7 @@ function SalonsView({ salons, bookings, barbers, settlements, settlementPayments
       <div className="salon-stats"><div><strong>{salon.rating.toFixed(1)} ★</strong><span>{salon.reviewCount} reviews</span></div><div><strong>{salonBarbers.filter((barber) => barber.isActive).length}</strong><span>active barbers</span></div><div><strong>{completed.length}</strong><span>completed</span></div></div>
       <div className="salon-card-foot"><span>{salon.openTime}–{salon.closeTime}</span><span>{salon.instantBookingsEnabled ? "Instant on" : "Instant paused"}</span></div>
       <div className="salon-private-payment"><span>Private payout details</span><strong>{salon.paymentUpiId || "UPI ID not added"}</strong>{salon.paymentQrCodeUrl ? <a href={salon.paymentQrCodeUrl} target="_blank" rel="noreferrer">View payment QR</a> : <small>QR code not added</small>}</div>
-      <section className="salon-finance-panel" aria-label={`${salon.name} finance`}><div className="salon-finance-heading"><div><span>Salon finance</span><small>External settlement and promotional credit</small></div><strong>{formatMoney(pendingSettlement)} pending</strong></div><div className="salon-finance-metrics"><div><span>Pending settlement</span><strong>{formatMoney(pendingSettlement)}</strong><small>{salonSettlements.filter((item) => item.status !== "paid").length} open booking records</small></div><div><span>Settled externally</span><strong>{formatMoney(settlementWallet?.paidAmount ?? 0)}</strong><small>Recorded payments</small></div><div><span>Deposit and credit balance</span><strong>{formatProin(availableProin)}</strong><small>{formatProin(spendableProin)} available to spend</small></div><div><span>Salon credit limit</span><strong>{formatProin(creditLimit)}</strong><small>Maximum negative balance</small></div></div><div className="salon-finance-actions"><button disabled={!canOperate} onClick={() => onAdminAction(creditLimitAction)}>Change credit limit</button><button disabled={!canOperate || !depositPrograms.length} onClick={() => onAdminAction(addCreditAction)}>Record Pritze deposit</button><button disabled={!canOperate} onClick={() => onAdminAction(referralApprovalAction)}>{salon.proinReferralApproved ? "Stop referral rewards" : "Approve referral rewards"}</button><button disabled={!canOperate || pendingSettlement <= 0} onClick={() => onAdminAction(settlementAction(pendingSettlement))}>Record external payment</button><button disabled={!canOperate || pendingSettlement <= 0} className="primary-control" onClick={() => onAdminAction(settlementAction(pendingSettlement, true))}>Settle full amount</button></div>{!depositPrograms.length ? <small className="finance-hint">Create a manual salon-credit Proin program with &quot;Records a Pritze deposit&quot; set to Yes before recording a deposit.</small> : null}{!salon.proinReferralApproved ? <small className="finance-hint">Referral rewards are not approved for this salon, so referral Proin that involves it will wait.</small> : null}{pendingSettlement <= 0 ? <small className="finance-hint">Settlement actions unlock only when this salon has a pending Pritze payout.</small> : null}{paymentHistory.length ? <details className="salon-payment-history"><summary>Recent settlement history ({paymentHistory.length})</summary><div>{paymentHistory.map((payment) => <p key={payment.paymentId}><strong>{formatMoney(payment.amountInr)}</strong><span>{formatSettlementPaymentMethod(payment.paymentMethod)} · {payment.paymentReference} · {formatDateTime(payment.paidAtMillis)} · {payment.allocationCount} booking{payment.allocationCount === 1 ? "" : "s"}</span></p>)}</div></details> : <small className="finance-hint">No external settlement has been recorded for this salon yet.</small>}</section>
+      <section className="salon-finance-panel" aria-label={`${salon.name} finance`}><div className="salon-finance-heading"><div><span>Salon finance</span><small>External settlement and promotional credit</small></div><strong>{formatMoney(pendingSettlement)} pending</strong></div><div className="salon-finance-metrics"><div><span>Pending settlement</span><strong>{formatMoney(pendingSettlement)}</strong><small>{salonSettlements.filter((item) => item.status !== "paid").length} open booking records</small></div><div><span>Settled externally</span><strong>{formatMoney(settlementWallet?.paidAmount ?? 0)}</strong><small>Recorded payments</small></div><div><span>Promotional balance</span><strong>{formatProin(availableProin)}</strong><small>{formatProin(spendableProin)} available to spend</small></div><div><span>Salon credit limit</span><strong>{formatProin(creditLimit)}</strong><small>Maximum negative balance</small></div></div><div className="salon-finance-actions"><button disabled={!canOperate} onClick={() => onAdminAction(creditLimitAction)}>Change credit limit</button><button disabled={!canOperate || !manualSalonPrograms.length} onClick={() => onAdminAction(addCreditAction)}>Add promotional credit</button><button disabled={!canOperate} onClick={() => onAdminAction(referralApprovalAction)}>{salon.proinReferralApproved ? "Stop referral rewards" : "Approve referral rewards"}</button><button disabled={!canOperate || pendingSettlement <= 0} onClick={() => onAdminAction(settlementAction(pendingSettlement))}>Record external payment</button><button disabled={!canOperate || pendingSettlement <= 0} className="primary-control" onClick={() => onAdminAction(settlementAction(pendingSettlement, true))}>Settle full amount</button></div>{!manualSalonPrograms.length ? <small className="finance-hint">Create one manual salon-credit Proin program before adding a promotional credit.</small> : null}{!salon.proinReferralApproved ? <small className="finance-hint">Referral rewards are not approved for this salon, so referral Proin that involves it will wait.</small> : null}{pendingSettlement <= 0 ? <small className="finance-hint">Settlement actions unlock only when this salon has a pending SalonFe payout.</small> : null}{paymentHistory.length ? <details className="salon-payment-history"><summary>Recent settlement history ({paymentHistory.length})</summary><div>{paymentHistory.map((payment) => <p key={payment.paymentId}><strong>{formatMoney(payment.amountInr)}</strong><span>{formatSettlementPaymentMethod(payment.paymentMethod)} · {payment.paymentReference} · {formatDateTime(payment.paidAtMillis)} · {payment.allocationCount} booking{payment.allocationCount === 1 ? "" : "s"}</span></p>)}</div></details> : <small className="finance-hint">No external settlement has been recorded for this salon yet.</small>}</section>
       <div className="control-cluster"><button disabled={!canOperate} className="primary-control" onClick={() => onAdminAction(salonProfileAction(salon))}>Edit profile</button><button disabled={!canOperate} onClick={() => onAdminAction(journeyCampaignAction(salonMap, undefined, salon))}>Create journey campaign</button><button disabled={!canOperate || salon.adminSuspended} onClick={() => onAdminAction(salonControl("isOpen", !salon.isOpen, salon.isOpen ? "Close salon" : "Open salon"))}>{salon.isOpen ? "Close" : "Open"}</button><button disabled={!canOperate || salon.adminSuspended} onClick={() => onAdminAction(salonControl("instantBookingsEnabled", !salon.instantBookingsEnabled, salon.instantBookingsEnabled ? "Pause instant bookings" : "Resume instant bookings"))}>{salon.instantBookingsEnabled ? "Pause instant" : "Resume instant"}</button><button disabled={!canOperate} className={salon.adminSuspended ? "" : "danger-link"} onClick={() => onAdminAction(salonControl("adminSuspended", !salon.adminSuspended, salon.adminSuspended ? "Restore salon" : "Suspend salon", !salon.adminSuspended))}>{salon.adminSuspended ? "Restore" : "Suspend"}</button><button disabled={!canOperate} onClick={() => onAdminAction(noteAction("salon", salon.id, salon.name))}>Note</button></div>
       {salon.services?.length ? <details className="service-controls"><summary>Manage all {salon.services.length} services</summary><div className="service-control-list">{salon.services.map((service) => <div key={service.id}><span>{service.name}<small>{formatMoney(service.price)} · {service.durationMinutes} min · {service.isAvailable ? "Available" : "Hidden"}</small></span><button disabled={!canOperate || salon.adminSuspended} onClick={() => onAdminAction(salonServiceAction(salon, service))}>Edit</button></div>)}</div></details> : null}
       <details className="service-controls team-controls"><summary>Manage team ({salonBarbers.length})</summary><div className="service-control-list">{salonBarbers.map((barber) => <div key={barber.id}><span>{barber.name}<small>{barber.speciality || "Team member"} · {barber.isActive ? "Active" : "Inactive"}</small></span><button disabled={!canOperate} onClick={() => onAdminAction(barberProfileAction(barber))}>Edit</button></div>)}{!salonBarbers.length ? <small>No team members added yet.</small> : null}</div></details>
@@ -1962,11 +1955,11 @@ const automationRuleCopy: Record<AutomationRule["id"], { label: string; descript
 
 function IntelligenceView({ data, salonMap, currentTime, canOperate, onAdminAction, onOpenBooking }: { data: AdminData; salonMap: Map<string, Salon>; currentTime: number; onOpenBooking: (bookingId: string) => void } & AdminControlProps) {
   const severityRank: Record<OperationalAlert["severity"], number> = { critical: 0, warning: 1, info: 2 };
-  const alerts = [...data.operationalAlerts].filter((alert) => alert.status !== "resolved").sort((a, b) => severityRank[a.severity] - severityRank[b.severity] || b.detectedAtMillis - a.detectedAtMillis);
+  const alerts = [...data.operationalAlerts].filter((alert) => isCurrentOperationalAlert(alert, data.bookings, data.salons, data.automationRules, currentTime)).sort((a, b) => severityRank[a.severity] - severityRank[b.severity] || b.detectedAtMillis - a.detectedAtMillis);
   const insights = buildDecisionInsights(data, currentTime, salonMap);
   const activeCount = alerts.filter((alert) => alert.status === "active").length;
   const enabledRules = data.automationRules.filter((rule) => rule.enabled).length;
-  return <><section className="intelligence-hero"><div><span className="eyebrow">PHASE 3 · DECISION SUPPORT</span><h2>Operational intelligence</h2><p>Deterministic signals from current Firebase records. Automation creates alerts only; administrators remain responsible for every operational change.</p></div><button disabled={!canOperate} onClick={() => onAdminAction({ title: "Run intelligence scan", description: "This refreshes operational alerts from current bookings and salons. It will not change any booking, salon or staff record.", confirmLabel: "Run scan now", callableName: "runAdminIntelligenceScan", payload: {}, fields: [reasonField] })}>✦ Scan now</button></section><section className="metric-grid intelligence-metrics"><MetricCard label="Active alerts" value={String(activeCount)} detail={`${alerts.filter((item) => item.severity === "critical" && item.status === "active").length} critical`} tone="red" /><MetricCard label="Decision insights" value={String(insights.length)} detail="Workload, anomaly and finance signals" tone="blue" /><MetricCard label="Enabled monitors" value={`${enabledRules}/${data.automationRules.length}`} detail="Alert-only automation" tone="green" /><MetricCard label="Auto-actions" value="0" detail="Human approval remains required" tone="gold" /></section><section className="intelligence-layout"><div className="panel alert-panel"><PanelHeader title="Operational alerts" subtitle="Automatically detected exceptions requiring review." />{alerts.length ? <div className="operational-alerts">{alerts.map((alert) => <article className={`${alert.severity} ${alert.status}`} key={alert.id}><div className="alert-severity"><i />{titleCase(alert.severity)}</div><h3>{alert.title}</h3><p>{alert.detail}</p><div className="recommended-action"><span>Recommended next step</span><strong>{alert.recommendedAction}</strong></div><div className="alert-foot"><span>{salonMap.get(alert.salonId)?.name ?? titleCase(alert.targetType)} · {alert.targetId}</span><time>{formatDateTime(alert.detectedAtMillis)}</time></div><div className="row-controls">{alert.targetType === "booking" ? <button onClick={() => onOpenBooking(alert.targetId)}>Review booking</button> : null}{alert.status === "active" ? <button disabled={!canOperate} onClick={() => onAdminAction({ title: `Acknowledge: ${alert.title}`, description: "Acknowledgement records that an administrator reviewed this signal. The underlying operational record will not be changed.", confirmLabel: "Acknowledge alert", callableName: "acknowledgeAdminOperationalAlert", payload: { alertId: alert.id }, fields: [reasonField] })}>Acknowledge</button> : <span className="acknowledged-label">Acknowledged</span>}</div></article>)}</div> : <EmptyState title="No active alerts" detail="The latest intelligence scan found no configured exceptions." />}</div><aside className="panel insight-panel"><PanelHeader title="Decision recommendations" subtitle="Advisory signals—never automatic actions." />{insights.length ? <div className="insight-list">{insights.map((insight) => <article key={insight.id}><span className={`insight-category ${insight.category}`}>{titleCase(insight.category)}</span><h3>{insight.title}</h3><p>{insight.detail}</p><strong>{insight.recommendation}</strong></article>)}</div> : <EmptyState title="No recommendations" detail="Workload and anomaly signals will appear as activity grows." />}</aside></section><section className="panel automation-panel"><PanelHeader title="Controlled automation" subtitle="Configure alert thresholds. These rules never mutate bookings or salon operations." /><div className="automation-grid">{data.automationRules.map((rule) => { const copy = automationRuleCopy[rule.id]; return <article key={rule.id}><div className="automation-top"><span className={rule.enabled ? "enabled" : "disabled"}>{rule.enabled ? "Monitoring" : "Paused"}</span><button disabled={!canOperate} onClick={() => onAdminAction({ title: `${rule.enabled ? "Pause" : "Enable"} ${copy.label}`, description: `${copy.description} This changes alert generation only.`, confirmLabel: rule.enabled ? "Pause monitor" : "Enable monitor", callableName: "updateAdminAutomationRule", payload: { ruleId: rule.id, enabled: !rule.enabled, threshold: rule.threshold }, fields: [reasonField], tone: rule.enabled ? "danger" : "default" })}>{rule.enabled ? "Pause" : "Enable"}</button></div><h3>{copy.label}</h3><p>{copy.description}</p><div className="threshold-row"><span>Threshold</span><strong>{rule.threshold} {copy.unit}</strong><button disabled={!canOperate} onClick={() => onAdminAction({ title: `Change ${copy.label} threshold`, description: `Current threshold: ${rule.threshold} ${copy.unit}.`, confirmLabel: "Update threshold", callableName: "updateAdminAutomationRule", payload: { ruleId: rule.id, enabled: rule.enabled }, fields: [{ key: "threshold", label: `New threshold (${copy.unit})`, type: "text", placeholder: String(rule.threshold) }, reasonField] })}>Adjust</button></div></article>; })}</div></section></>;
+  return <><section className="intelligence-hero"><div><span className="eyebrow">PHASE 3 · DECISION SUPPORT</span><h2>Operational intelligence</h2><p>Deterministic signals from current Firebase records. Automation creates alerts only; administrators remain responsible for every operational change.</p></div><button disabled={!canOperate} onClick={() => onAdminAction({ title: "Run intelligence scan", description: "This refreshes operational alerts from current bookings and salons. It will not change any booking, salon or staff record.", confirmLabel: "Run scan now", callableName: "runAdminIntelligenceScan", payload: {}, fields: [reasonField] })}>✦ Scan now</button></section><section className="metric-grid intelligence-metrics"><MetricCard label="Active alerts" value={String(activeCount)} detail={`${alerts.filter((item) => item.severity === "critical" && item.status === "active").length} critical`} tone="red" /><MetricCard label="Decision insights" value={String(insights.length)} detail="Workload, anomaly and finance signals" tone="blue" /><MetricCard label="Enabled monitors" value={`${enabledRules}/${data.automationRules.length}`} detail="Alert-only automation" tone="green" /><MetricCard label="Auto-actions" value="0" detail="Human approval remains required" tone="gold" /></section><section className="intelligence-layout"><div className="panel alert-panel"><PanelHeader title="Operational alerts" subtitle="Current exceptions. Historical booking alerts are hidden." />{alerts.length ? <div className="operational-alerts">{alerts.map((alert) => <article className={`${alert.severity} ${alert.status}`} key={alert.id}><div className="alert-severity"><i />{titleCase(alert.severity)}</div><h3>{alert.title}</h3><p>{alert.detail}</p><div className="recommended-action"><span>Recommended next step</span><strong>{alert.recommendedAction}</strong></div><div className="alert-foot"><span>{salonMap.get(alert.salonId)?.name ?? titleCase(alert.targetType)} · {alert.targetId}</span><time>{formatDateTime(alert.detectedAtMillis)}</time></div><div className="row-controls">{alert.targetType === "booking" ? <button onClick={() => onOpenBooking(alert.targetId)}>Review booking</button> : null}{alert.status === "active" ? <button disabled={!canOperate} onClick={() => onAdminAction({ title: `Acknowledge: ${alert.title}`, description: "Acknowledgement records that an administrator reviewed this signal. The underlying operational record will not be changed.", confirmLabel: "Acknowledge alert", callableName: "acknowledgeAdminOperationalAlert", payload: { alertId: alert.id }, fields: [reasonField] })}>Acknowledge</button> : <span className="acknowledged-label">Acknowledged</span>}</div></article>)}</div> : <EmptyState title="No active alerts" detail="No current exceptions need review." />}</div><aside className="panel insight-panel"><PanelHeader title="Decision recommendations" subtitle="Advisory signals—never automatic actions." />{insights.length ? <div className="insight-list">{insights.map((insight) => <article key={insight.id}><span className={`insight-category ${insight.category}`}>{titleCase(insight.category)}</span><h3>{insight.title}</h3><p>{insight.detail}</p><strong>{insight.recommendation}</strong></article>)}</div> : <EmptyState title="No recommendations" detail="Workload and anomaly signals will appear as activity grows." />}</aside></section><section className="panel automation-panel"><PanelHeader title="Controlled automation" subtitle="Configure alert thresholds. These rules never mutate bookings or salon operations." /><div className="automation-grid">{data.automationRules.map((rule) => { const copy = automationRuleCopy[rule.id]; return <article key={rule.id}><div className="automation-top"><span className={rule.enabled ? "enabled" : "disabled"}>{rule.enabled ? "Monitoring" : "Paused"}</span><button disabled={!canOperate} onClick={() => onAdminAction({ title: `${rule.enabled ? "Pause" : "Enable"} ${copy.label}`, description: `${copy.description} This changes alert generation only.`, confirmLabel: rule.enabled ? "Pause monitor" : "Enable monitor", callableName: "updateAdminAutomationRule", payload: { ruleId: rule.id, enabled: !rule.enabled, threshold: rule.threshold }, fields: [reasonField], tone: rule.enabled ? "danger" : "default" })}>{rule.enabled ? "Pause" : "Enable"}</button></div><h3>{copy.label}</h3><p>{copy.description}</p><div className="threshold-row"><span>Threshold</span><strong>{rule.threshold} {copy.unit}</strong><button disabled={!canOperate} onClick={() => onAdminAction({ title: `Change ${copy.label} threshold`, description: `Current threshold: ${rule.threshold} ${copy.unit}.`, confirmLabel: "Update threshold", callableName: "updateAdminAutomationRule", payload: { ruleId: rule.id, enabled: rule.enabled }, fields: [{ key: "threshold", label: `New threshold (${copy.unit})`, type: "text", placeholder: String(rule.threshold) }, reasonField] })}>Adjust</button></div></article>; })}</div></section></>;
 }
 
 function buildDecisionInsights(data: AdminData, currentTime: number, salonMap: Map<string, Salon>): DecisionInsight[] {
@@ -1977,13 +1970,13 @@ function buildDecisionInsights(data: AdminData, currentTime: number, salonMap: M
     if (workloads.length >= 2 && workloads[0].count - workloads[workloads.length - 1].count >= 2) {
       insights.push({ id: `workload-${salon.id}`, category: "workload", severity: "info", title: `Workload imbalance at ${salon.name}`, detail: `${workloads[0].barber.name} has ${workloads[0].count} bookings today while ${workloads[workloads.length - 1].barber.name} has ${workloads[workloads.length - 1].count}.`, recommendation: "Review skills and availability before reassigning future appointments." });
     }
-    const terminal = data.bookings.filter((booking) => booking.salonId === salon.id && ["completed", "cancelled", "rejected"].includes(booking.status));
+    const terminal = recentTerminalBookings(data.bookings.filter((booking) => booking.salonId === salon.id), currentTime);
     const cancelled = terminal.filter((booking) => ["cancelled", "rejected"].includes(booking.status));
     if (terminal.length >= 3 && cancelled.length / terminal.length >= .34) {
-      insights.push({ id: `cancellation-${salon.id}`, category: "anomaly", severity: "warning", title: `Cancellation pattern at ${salon.name}`, detail: `${Math.round(cancelled.length / terminal.length * 100)}% of terminal bookings were cancelled or rejected.`, recommendation: "Compare reasons, busy hours and staffing before changing availability." });
+      insights.push({ id: `cancellation-${salon.id}`, category: "anomaly", severity: "warning", title: `Cancellation pattern at ${salon.name}`, detail: `${Math.round(cancelled.length / terminal.length * 100)}% of terminal bookings in the last 7 days were cancelled or rejected.`, recommendation: "Compare reasons, busy hours and staffing before changing availability." });
     }
   }
-  for (const booking of data.bookings.filter((item) => item.status === "inProgress" && item.startedAtMillis)) {
+  for (const booking of data.bookings.filter((item) => item.status === "inProgress" && item.startedAtMillis && isCurrentOperationalBooking(item, currentTime))) {
     const expectedEnd = (booking.startedAtMillis ?? 0) + booking.durationMinutes * minute;
     if (currentTime > expectedEnd + 15 * minute) insights.push({ id: `overrun-${booking.id}`, category: "anomaly", severity: "warning", title: `Service duration overrun for ${booking.id}`, detail: `${booking.customerName}'s service is more than 15 minutes beyond its expected duration.`, recommendation: "Check with the salon before completing or cancelling the booking." });
   }
@@ -2020,19 +2013,19 @@ function SettlementsView({ settlements, wallets, salonMap, currentTime, canOpera
     <section className="report-grid">
       <MetricCard label="Payable now" value={formatMoney(wallets.reduce((sum, wallet) => sum + wallet.payableBalance, 0))} detail={`${outstanding.length} open booking settlements`} tone="red" />
       <MetricCard label="Paid externally" value={formatMoney(wallets.reduce((sum, wallet) => sum + wallet.paidAmount, 0))} detail={`${paid.length} reconciled settlements`} tone="green" />
-      <MetricCard label="Lifetime Pritze earnings" value={formatMoney(wallets.reduce((sum, wallet) => sum + wallet.lifetimePritzeEarnings, 0))} detail="Across loaded salon wallets" tone="gold" />
+      <MetricCard label="Lifetime SalonFe earnings" value={formatMoney(wallets.reduce((sum, wallet) => sum + wallet.lifetimePritzeEarnings, 0))} detail="Across loaded salon wallets" tone="gold" />
     </section>
     <section className="panel main-panel">
       <PanelHeader title="Outstanding settlements" subtitle="Confirm only after the external payment has actually been made. Choose Bank transfer, UPI or Cash and retain its reference." />
       <div className="data-table customer-data">
-        <div className="data-head"><span>Salon / booking</span><span>Counter paid</span><span>Pritze payout</span><span>Salon total</span><span>Action</span></div>
+        <div className="data-head"><span>Salon / booking</span><span>Counter paid</span><span>SalonFe payout</span><span>Salon total</span><span>Action</span></div>
         {outstanding.map((item) => <div className="data-row" key={item.bookingId}><div><strong>{salonMap.get(item.salonId)?.name ?? "Unknown salon"}</strong><small>{item.bookingId}{item.status === "partially_paid" ? " · Partially paid" : ""}</small></div><span>{formatMoney(item.customerCounterAmount)}</span><strong>{formatMoney(item.outstandingAmount || item.pritzePayoutAmount)}</strong><span>{formatMoney(item.salonTotalEarning)}</span><button className="row-button" disabled={!canOperate || item.status === "partially_paid"} onClick={() => onAdminAction(markPaidAction(item))}>{item.status === "partially_paid" ? "Use salon card" : "Record payment"}</button></div>)}
       </div>
       {!outstanding.length ? <EmptyState title="Nothing payable" detail="Completed discounted bookings will appear here." /> : null}
     </section>
     <section className="panel main-panel">
       <PanelHeader title="Paid history" subtitle="External payment references are retained for reconciliation." />
-      <div className="join-list">{paid.slice(0, 100).map((item) => <div className="join-row" key={item.bookingId}><div><strong>{salonMap.get(item.salonId)?.name ?? "Unknown salon"}</strong><span>{item.bookingId}</span></div><div><span>Pritze payout</span><strong>{formatMoney(item.pritzePayoutAmount)}</strong></div><div><span>{formatSettlementPaymentMethod(item.paymentMethod)} reference</span><strong>{item.paymentReference}</strong></div><time>{formatDateTime(item.paidAtMillis)}</time></div>)}</div>
+      <div className="join-list">{paid.slice(0, 100).map((item) => <div className="join-row" key={item.bookingId}><div><strong>{salonMap.get(item.salonId)?.name ?? "Unknown salon"}</strong><span>{item.bookingId}</span></div><div><span>SalonFe payout</span><strong>{formatMoney(item.pritzePayoutAmount)}</strong></div><div><span>{formatSettlementPaymentMethod(item.paymentMethod)} reference</span><strong>{item.paymentReference}</strong></div><time>{formatDateTime(item.paidAtMillis)}</time></div>)}</div>
     </section>
   </>;
 }
@@ -2066,8 +2059,6 @@ function DiscountOperationsView({ data, customerMap, salonMap, canOperate, onAdm
         { key: "fixedDiscountAmount", label: "Fixed discount (₹, used only for fixed type)", type: "number", min: 1, initialValue: String(campaign?.fixedDiscountAmount || 100) },
         { key: "salonPayoutPercent", label: "Salon compensation (% of customer discount)", type: "number", min: 0, max: 1000, step: 0.01, initialValue: String(campaign?.salonPayoutPercent ?? 200) },
         { key: "salonPayoutPercentByBookingNumber", label: "Compensation by customer booking number (optional)", type: "textarea", valueKind: "booking-payout-rules", placeholder: "1:100, 2:0, 3:2", required: false, initialValue: bookingPayoutRulesText(campaign?.salonPayoutPercentByBookingNumber) },
-        { key: "salonFirstVisitEarningPercent", label: "Salon first-visit earning (% of bill)", type: "number", min: 0, max: 100, step: 0.01, initialValue: String(campaign ? campaign.salonFirstVisitEarningPercent ?? 0 : 10) },
-        { key: "salonFirstVisitEarningMaximumAmount", label: "Salon first-visit earning cap (₹, 0 = no cap)", type: "number", min: 0, initialValue: String(campaign ? campaign.salonFirstVisitEarningMaximumAmount ?? 0 : 50) },
         { key: "cashbackProinAmount", label: "Proin cashback after completion", type: "number", min: 0, initialValue: String(campaign?.cashbackProinAmount ?? 0) },
         { key: "cashbackValidityDays", label: "Cashback validity (days)", type: "number", min: 0, max: 730, initialValue: String(campaign?.cashbackValidityDays ?? 30) },
         { key: "cashbackTotalBudgetProin", label: "Cashback budget (Proin)", type: "number", min: 0, initialValue: String(campaign?.cashbackTotalBudgetProin ?? 0) },
@@ -2137,8 +2128,6 @@ function DiscountOperationsView({ data, customerMap, salonMap, canOperate, onAdm
         { key: "fixedDiscountAmount", label: "Fixed discount (₹, used only for fixed type)", type: "number", min: 1, initialValue: "100" },
         { key: "salonPayoutPercent", label: "Salon compensation (% of customer discount)", type: "number", min: 0, max: 1000, step: 0.01, initialValue: "100" },
         { key: "salonPayoutPercentByBookingNumber", label: "Compensation by customer booking number (optional)", type: "textarea", valueKind: "booking-payout-rules", placeholder: "1:100, 2:0, 3:2", required: false, initialValue: "" },
-        { key: "salonFirstVisitEarningPercent", label: "Salon first-visit earning (% of bill)", type: "number", min: 0, max: 100, step: 0.01, initialValue: "10" },
-        { key: "salonFirstVisitEarningMaximumAmount", label: "Salon first-visit earning cap (₹, 0 = no cap)", type: "number", min: 0, initialValue: "50" },
         { key: "cashbackProinAmount", label: "Proin cashback after completion", type: "number", min: 0, initialValue: "0" },
         { key: "cashbackValidityDays", label: "Cashback validity (days)", type: "number", min: 0, max: 730, initialValue: "30" },
         { key: "cashbackTotalBudgetProin", label: "Cashback budget (Proin)", type: "number", min: 0, initialValue: "0" },
@@ -2167,7 +2156,7 @@ function DiscountOperationsView({ data, customerMap, salonMap, canOperate, onAdm
 
   return <>
     <section className="discount-hero">
-      <div><p className="eyebrow">REAL-MONEY PROMOTION CONTROL</p><h2>Discount operations</h2><p>Configure which customer sees which discount, cap every burn path and monitor the amount Pritze owes salons. Salon-funded campaigns can use each salon promotional Proin balance down to the approved credit line.</p></div>
+      <div><p className="eyebrow">REAL-MONEY PROMOTION CONTROL</p><h2>Discount operations</h2><p>Configure which customer sees which discount, cap every burn path and monitor the amount SalonFe owes salons. Salon-funded campaigns can use each salon promotional Proin balance down to the approved credit line.</p></div>
       <div className="discount-vault-state"><span>₹</span><div><small>Discount vault v{data.vault.budgetVersion}</small><strong>{formatMoney(data.vault.availableAmount)} available</strong><time>{formatMoney(data.vault.reservedAmount + data.vault.spentAmount)} committed</time></div></div>
     </section>
 
@@ -2207,8 +2196,7 @@ function DiscountOperationsView({ data, customerMap, salonMap, canOperate, onAdm
           const offer = journey ? `${campaign.journeyMilestones.length} booking rewards` : campaign.discountType === "fixed" ? `${formatMoney(campaign.fixedDiscountAmount)} off` : `${campaign.discountPercent}% off`;
           const delivery = campaign.voucherOnly ? `${campaign.visibleAtCheckout ? "Visible checkout offer" : "Hidden typed-code coupon"} · ${campaign.voucherMaskedCode || "code protected"}` : "Automatic offer";
           const funding = campaign.fundingSource === "platform_vault" ? "Platform vault" : "Salon credits";
-          const firstVisitEarning = campaign.salonFirstVisitEarningPercent ? ` + ${campaign.salonFirstVisitEarningPercent}% of a first-visit bill${campaign.salonFirstVisitEarningMaximumAmount ? ` up to ${formatMoney(campaign.salonFirstVisitEarningMaximumAmount)}` : ""}` : "";
-          const compensation = `${campaign.salonPayoutPercent}% of customer discount${firstVisitEarning}`;
+          const compensation = `${campaign.salonPayoutPercent}% of customer discount`;
           const bookingRules = bookingPayoutRulesText(campaign.salonPayoutPercentByBookingNumber);
           const cashback = campaign.cashbackProinAmount > 0 ? ` · up to ${campaign.cashbackProinAmount} Proin after completion` : "";
           const milestoneSummary = journey ? campaign.journeyMilestones.map((milestone) => `#${milestone.bookingNumber} ${milestone.rewardType === "discount_proin" ? "discount + Proin" : milestone.rewardType}`).join(" · ") : "";
@@ -2219,7 +2207,7 @@ function DiscountOperationsView({ data, customerMap, salonMap, canOperate, onAdm
     </section>
 
     <section className="discount-burn-grid">
-      <article className="panel"><PanelHeader title="Burn by salon" subtitle="Reserved plus realized Pritze payout exposure" /><div className="discount-burn-list">{salonBurn.slice(0, 100).map((item) => <div key={item.salonId}><div><strong>{salonMap.get(item.salonId)?.name ?? item.salonId}</strong><span>{item.realizedUses} completed · {item.reservedUses} reserved</span></div><div><b>{formatMoney(item.realizedPayoutAmount + item.reservedPayoutAmount)}</b><small>{formatMoney(item.realizedDiscountAmount)} customer discount realized</small></div></div>)}</div>{!salonBurn.length ? <EmptyState title="No salon burn" detail="Salon-level totals appear after the first eligible booking." /> : null}</article>
+      <article className="panel"><PanelHeader title="Burn by salon" subtitle="Reserved plus realized SalonFe payout exposure" /><div className="discount-burn-list">{salonBurn.slice(0, 100).map((item) => <div key={item.salonId}><div><strong>{salonMap.get(item.salonId)?.name ?? item.salonId}</strong><span>{item.realizedUses} completed · {item.reservedUses} reserved</span></div><div><b>{formatMoney(item.realizedPayoutAmount + item.reservedPayoutAmount)}</b><small>{formatMoney(item.realizedDiscountAmount)} customer discount realized</small></div></div>)}</div>{!salonBurn.length ? <EmptyState title="No salon burn" detail="Salon-level totals appear after the first eligible booking." /> : null}</article>
       <article className="panel"><PanelHeader title="Burn by customer" subtitle="Customer-specific exposure and usage" /><div className="discount-burn-list">{customerBurn.slice(0, 100).map((item) => <div key={item.customerUid}><div><strong>{customerMap.get(item.customerUid)?.name ?? item.customerUid}</strong><span>{item.realizedUses} completed · {item.reservedUses} reserved</span></div><div><b>{formatMoney(item.realizedPayoutAmount + item.reservedPayoutAmount)}</b><small>{formatMoney(item.realizedDiscountAmount)} discount received</small></div></div>)}</div>{!customerBurn.length ? <EmptyState title="No customer burn" detail="Customer-level totals appear after the first eligible booking." /> : null}</article>
     </section>
   </>;
@@ -2321,7 +2309,6 @@ function ProinOperationsView({ data, customerMap, salonMap, canOperate, onAdminA
         { key: "maximumProinPerBooking", label: "Maximum Proin per booking", type: "number", min: 0, initialValue: String(program?.maximumProinPerBooking ?? 100) },
         { key: "maximumRedemptionPercent", label: "Maximum redemption percent", type: "number", min: 0, max: 100, initialValue: String(program?.maximumRedemptionPercent ?? 25) },
         { key: "stackableWithDiscount", label: "Stackable with discount", type: "select", valueKind: "boolean", initialValue: String(program?.stackableWithDiscount ?? false), options: booleanOptions },
-        { key: "salonDeposit", label: "Records a Pritze deposit (manual salon programs only)", type: "select", valueKind: "boolean", initialValue: String(program?.salonDeposit ?? false), options: booleanOptions },
         { key: "startsAtMillis", label: "Program starts", type: "datetime-local", initialValue: dateTimeLocalValue(start) },
         { key: "endsAtMillis", label: "Program ends", type: "datetime-local", initialValue: dateTimeLocalValue(end) },
         { key: "eligibleSalonIds", label: "Eligible salon IDs (optional, comma separated)", type: "textarea", valueKind: "string-list", required: false, initialValue: program?.eligibleSalonIds.join(", ") ?? "" },
@@ -2335,7 +2322,7 @@ function ProinOperationsView({ data, customerMap, salonMap, canOperate, onAdminA
   function couponAction(coupon?: ProinCoupon): AdminAction {
     return {
       title: coupon ? `Edit coupon ${coupon.maskedCode}` : "Create Proin coupon",
-      description: coupon ? "Enter the original full coupon code to save a new version. Pritze stores only its hash and masked label, so the plain code cannot be recovered from the database." : "Create the linked inactive coupon program first. The coupon controls claim dates and audience; the linked program controls reward value and reward expiry.",
+      description: coupon ? "Enter the original full coupon code to save a new version. SalonFe stores only its hash and masked label, so the plain code cannot be recovered from the database." : "Create the linked inactive coupon program first. The coupon controls claim dates and audience; the linked program controls reward value and reward expiry.",
       confirmLabel: coupon ? "Save coupon version" : "Create inactive coupon",
       callableName: "upsertProinCouponAsAdmin",
       payload: coupon ? { expectedCodeHash: coupon.codeHash } : {},
@@ -2382,7 +2369,7 @@ function ProinOperationsView({ data, customerMap, salonMap, canOperate, onAdminA
   function settlementAction(item: ProinReimbursement): AdminAction {
     return {
       title: `Record reimbursement for ${item.bookingId}`,
-      description: `Confirm only after Pritze has paid ${formatMoney(item.amountInr)} to ${salonMap.get(item.salonId)?.name ?? "the salon"} outside the app. This records evidence; it does not initiate a bank or UPI transfer.`,
+      description: `Confirm only after SalonFe has paid ${formatMoney(item.amountInr)} to ${salonMap.get(item.salonId)?.name ?? "the salon"} outside the app. This records evidence; it does not initiate a bank or UPI transfer.`,
       confirmLabel: "Record as paid",
       callableName: "markProinReimbursementSettledAsAdmin",
       payload: { bookingId: item.bookingId },
@@ -2630,7 +2617,7 @@ function ProinOperationsView({ data, customerMap, salonMap, canOperate, onAdminA
 
   return <>
     <section className="proin-hero">
-      <div><p className="eyebrow">PROMOTIONAL REWARD CONTROL</p><h2>Proin operations</h2><p>Correct only unused promotional rewards and reconcile salon reimbursements paid outside Pritze. Customer purchases, transfers, withdrawals and cash conversion remain disabled.</p></div>
+      <div><p className="eyebrow">PROMOTIONAL REWARD CONTROL</p><h2>Proin operations</h2><p>Correct only unused promotional rewards and reconcile salon reimbursements paid outside SalonFe. Customer purchases, transfers, withdrawals and cash conversion remain disabled.</p></div>
       <div className={`proin-health ${isBalanced ? "balanced" : "review"}`}><span>{isBalanced ? "✓" : "!"}</span><div><small>Latest reconciliation</small><strong>{latestReport ? titleCase(latestReport.status.replace("_", " ")) : "Not run"}</strong><time>{latestReport ? formatDateTime(latestReport.createdAtMillis) : "Run before operating"}</time></div></div>
     </section>
 
@@ -2862,20 +2849,20 @@ function AdminActionDialog({ action, values, error, submitting, onChange, onSubm
 
 function AdminAccessPage({ authReady, user, userId, password, passwordVisible, submitting, loading, error, setUserId, setPassword, setPasswordVisible, onSignIn, onRetry, onUseAnotherAccount }: { authReady: boolean; user: User | null; userId: string; password: string; passwordVisible: boolean; submitting: boolean; loading: boolean; error: string; setUserId: (value: string) => void; setPassword: (value: string) => void; setPasswordVisible: (value: boolean) => void; onSignIn: (event: React.FormEvent) => void; onRetry: () => void; onUseAnotherAccount: () => void }) {
   return <main className="access-page">
-    <section className="access-story" aria-labelledby="pritze-access-title">
-      <div className="access-brand"><span className="brand-mark">P</span><div><strong>Pritze</strong><small>CONTROL CENTER</small></div></div>
-      <div className="access-story-copy"><p className="access-eyebrow">THE OPERATING DESK FOR BETTER SALON EXPERIENCES</p><h1 id="pritze-access-title">One trusted place to run Pritze.</h1><p>Keep bookings moving, support salon partners, and manage every customer reward with the clarity your team needs.</p></div>
+    <section className="access-story" aria-labelledby="salonfe-access-title">
+      <div className="access-brand"><span className="brand-mark"><img src="/salonfe-icon.png" alt="" /></span><div><strong>SalonFe</strong><small>CONTROL CENTER</small></div></div>
+      <div className="access-story-copy"><p className="access-eyebrow">THE OPERATING DESK FOR BETTER SALON EXPERIENCES</p><h1 id="salonfe-access-title">One trusted place to run SalonFe.</h1><p>Keep bookings moving, support salon partners, and manage every customer reward with the clarity your team needs.</p></div>
       <div className="access-capabilities"><article><span>01</span><div><strong>Live operations</strong><p>Bookings, arrivals and salon activity in one view.</p></div></article><article><span>02</span><div><strong>Customer value</strong><p>Discounts, referrals and Proin with controlled budgets.</p></div></article><article><span>03</span><div><strong>Accountable decisions</strong><p>Team actions remain authorized and auditable.</p></div></article></div>
-      <p className="access-footnote">Pritze · Built for the people behind every great appointment.</p>
+      <p className="access-footnote">SalonFe · Built for the people behind every great appointment.</p>
     </section>
-    <section className="access-panel" aria-label="Pritze team sign in">
+    <section className="access-panel" aria-label="SalonFe team sign in">
       <div className="access-card">
-        <span className="access-lock">P</span>
+        <span className="access-lock"><img src="/salonfe-icon.png" alt="" /></span>
         <p className="access-card-eyebrow">AUTHORIZED TEAM ACCESS</p>
         <h2>Welcome back</h2>
-        <p className="access-intro">Use the Pritze User ID and password assigned to you. No email, OTP or ChatGPT account is required.</p>
-        {user ? <div className="access-session"><div className="access-progress"><i /><div><strong>{loading ? "Opening the control center" : "The control center could not open"}</strong><span>{loading ? "Loading live Pritze operations…" : error}</span></div></div>{!loading ? <div className="access-session-actions"><button className="auth-primary" onClick={onRetry}>Try again</button><button className="auth-secondary" onClick={onUseAnotherAccount}>Use another account</button></div> : null}</div> : <form className="access-form" onSubmit={onSignIn} aria-busy={!authReady || submitting}><label>User ID<input type="text" autoComplete="username" value={userId} onChange={(event) => setUserId(event.target.value)} placeholder="User 1" minLength={3} maxLength={40} autoCapitalize="words" required /></label><label>Password<div className="password-field"><input type={passwordVisible ? "text" : "password"} autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Enter your password" minLength={8} maxLength={72} required /><button type="button" onClick={() => setPasswordVisible(!passwordVisible)} aria-label={passwordVisible ? "Hide password" : "Show password"}>{passwordVisible ? "Hide" : "Show"}</button></div></label>{error ? <div className="auth-error" role="alert">{error}</div> : null}<button className="auth-primary" disabled={!authReady || submitting || !userId.trim() || password.length < 8}>{!authReady ? "Checking secure session…" : submitting ? "Signing in…" : "Open control center"}</button></form>}
-        <p className="access-security">Private access for approved Pritze team members. There is no public registration.</p>
+        <p className="access-intro">Use the SalonFe User ID and password assigned to you. No email, OTP or ChatGPT account is required.</p>
+        {user ? <div className="access-session"><div className="access-progress"><i /><div><strong>{loading ? "Opening the control center" : "The control center could not open"}</strong><span>{loading ? "Loading live SalonFe operations…" : error}</span></div></div>{!loading ? <div className="access-session-actions"><button className="auth-primary" onClick={onRetry}>Try again</button><button className="auth-secondary" onClick={onUseAnotherAccount}>Use another account</button></div> : null}</div> : <form className="access-form" onSubmit={onSignIn} aria-busy={!authReady || submitting}><label>User ID<input type="text" autoComplete="username" value={userId} onChange={(event) => setUserId(event.target.value)} placeholder="User 1" minLength={3} maxLength={40} autoCapitalize="words" required /></label><label>Password<div className="password-field"><input type={passwordVisible ? "text" : "password"} autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Enter your password" minLength={8} maxLength={72} required /><button type="button" onClick={() => setPasswordVisible(!passwordVisible)} aria-label={passwordVisible ? "Hide password" : "Show password"}>{passwordVisible ? "Hide" : "Show"}</button></div></label>{error ? <div className="auth-error" role="alert">{error}</div> : null}<button className="auth-primary" disabled={!authReady || submitting || !userId.trim() || password.length < 8}>{!authReady ? "Checking secure session…" : submitting ? "Signing in…" : "Open control center"}</button></form>}
+        <p className="access-security">Private access for approved SalonFe team members. There is no public registration.</p>
       </div>
     </section>
   </main>;

@@ -31,7 +31,10 @@ class AppHeroHeader extends StatelessWidget {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const SizedBox(width: 5, child: ColoredBox(color: AppColors.gold)),
+            const SizedBox(
+              width: 5,
+              child: ColoredBox(color: AppColors.primary),
+            ),
             Expanded(
               child: Padding(
                 padding: const EdgeInsets.all(15),

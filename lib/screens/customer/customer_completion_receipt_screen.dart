@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../widgets/brand_header.dart';
 import '../../models/app_models.dart';
 import '../../state/app_state_scope.dart';
 import '../../theme/app_theme.dart';
@@ -72,7 +73,7 @@ class _CustomerCompletionReceiptScreenState
         ),
         const SizedBox(height: 8),
         Text(
-          'Thank you for using Pritze.',
+          'Thank you for using SalonFe.',
           textAlign: TextAlign.center,
           style: Theme.of(context).textTheme.bodyLarge,
         ),
@@ -210,7 +211,7 @@ class _CustomerCompletionReceiptScreenState
     );
     if (widget.dialogMode) return SafeArea(child: Material(child: content));
     return Scaffold(
-      appBar: AppBar(title: const Text('Payment summary')),
+      appBar: SalonFeAppBar(title: const Text('Payment summary')),
       body: content,
     );
   }
@@ -222,7 +223,7 @@ class _CustomerCompletionReceiptScreenState
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         gradient: const LinearGradient(
-          colors: [Color(0xFFFFF5E6), Color(0xFFFFFAF3)],
+          colors: [AppColors.primarySoft, AppColors.primarySoft],
         ),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: AppColors.primary.withAlpha(80)),
@@ -297,7 +298,7 @@ class _CustomerCompletionReceiptScreenState
           ],
           const SizedBox(height: 8),
           Text(
-            'Payment goes directly to the salon. Pritze does not verify or collect it.',
+            'Payment goes directly to the salon. SalonFe does not verify or collect it.',
             style: Theme.of(context).textTheme.bodySmall,
           ),
         ],
@@ -425,7 +426,7 @@ class _PaymentCardLoading extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: AppColors.champagne.withAlpha(70),
+        color: AppColors.primarySoft.withAlpha(70),
         borderRadius: BorderRadius.circular(16),
       ),
       child: const Row(
@@ -455,7 +456,7 @@ class _PaymentUnavailableCard extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: AppColors.champagne.withAlpha(110),
+        color: AppColors.primarySoft.withAlpha(110),
         borderRadius: BorderRadius.circular(14),
       ),
       child: Column(

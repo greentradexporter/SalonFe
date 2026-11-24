@@ -16,7 +16,7 @@ class AppErrorPresentation {
 const _genericError = AppErrorPresentation(
   title: 'Something went wrong',
   message:
-      'Please try again. If the problem continues, contact Pritze support.',
+      'Please try again. If the problem continues, contact SalonFe support.',
 );
 
 const _secureSessionError = AppErrorPresentation(
@@ -440,12 +440,12 @@ Future<void> showAppErrorDialog(
           width: 64,
           height: 64,
           decoration: BoxDecoration(
-            color: AppColors.coral.withAlpha(22),
+            color: AppColors.danger.withAlpha(22),
             shape: BoxShape.circle,
           ),
           child: const Icon(
             Icons.error_outline_rounded,
-            color: AppColors.coral,
+            color: AppColors.danger,
             size: 36,
           ),
         ),

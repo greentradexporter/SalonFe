@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 
-class TrimtimeLogo extends StatelessWidget {
+import '../theme/app_brand.dart';
+
+class SalonFeLogo extends StatelessWidget {
   final double size;
   final bool shadow;
 
-  const TrimtimeLogo({super.key, this.size = 48, this.shadow = true});
+  const SalonFeLogo({super.key, this.size = 48, this.shadow = true});
 
   @override
   Widget build(BuildContext context) {
@@ -29,10 +31,7 @@ class TrimtimeLogo extends StatelessWidget {
           color: Colors.white,
           child: Padding(
             padding: EdgeInsets.all(size * 0.06),
-            child: Image.asset(
-              'assets/brand/pritze_logo.jpeg',
-              fit: BoxFit.contain,
-            ),
+            child: Image.asset(AppBrand.iconAsset, fit: BoxFit.contain),
           ),
         ),
       ),

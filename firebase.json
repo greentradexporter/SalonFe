@@ -17,6 +17,13 @@
     ],
     "rewrites": [
       {
+        "source": "/s/**",
+        "function": {
+          "functionId": "salonSharePage",
+          "region": "asia-south1"
+        }
+      },
+      {
         "source": "/r/**",
         "destination": "/referral.html"
       }

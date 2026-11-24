@@ -559,6 +559,9 @@ class Salon {
   final int reviewCount;
   final String openTime;
   final String closeTime;
+
+  /// ISO weekdays: Monday=1 through Sunday=7. Empty means open every day.
+  final List<int> closedWeekdays;
   final bool isOpen;
   final bool instantBookingsEnabled;
   final String? instantBookingsPausedDate;
@@ -580,6 +583,7 @@ class Salon {
     required this.reviewCount,
     required this.openTime,
     required this.closeTime,
+    this.closedWeekdays = const [],
     required this.isOpen,
     this.instantBookingsEnabled = true,
     this.instantBookingsPausedDate,
@@ -602,6 +606,7 @@ class Salon {
     int? reviewCount,
     String? openTime,
     String? closeTime,
+    List<int>? closedWeekdays,
     bool? isOpen,
     bool? instantBookingsEnabled,
     String? instantBookingsPausedDate,
@@ -623,6 +628,7 @@ class Salon {
       reviewCount: reviewCount ?? this.reviewCount,
       openTime: openTime ?? this.openTime,
       closeTime: closeTime ?? this.closeTime,
+      closedWeekdays: closedWeekdays ?? this.closedWeekdays,
       isOpen: isOpen ?? this.isOpen,
       instantBookingsEnabled:
           instantBookingsEnabled ?? this.instantBookingsEnabled,
@@ -632,6 +638,8 @@ class Salon {
       services: services ?? this.services,
     );
   }
+
+  bool isClosedOn(DateTime day) => closedWeekdays.contains(day.weekday);
 
   String get coverImageUrl {
     if (photoUrls.isNotEmpty) {
@@ -1111,4 +1119,17 @@ class JoinRequest {
       requestedAt: requestedAt ?? this.requestedAt,
     );
   }
+}
+
+/// Owner deposit accounting in rupees; the available credit line is separate.
+class SalonBalanceSummary {
+  final int deposit;
+  final int discount;
+  final int earning;
+  const SalonBalanceSummary({
+    required this.deposit,
+    required this.discount,
+    required this.earning,
+  });
+  int get balance => deposit - discount - earning;
 }

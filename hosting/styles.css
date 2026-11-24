@@ -1,13 +1,13 @@
 :root {
   color-scheme: light;
-  --ink: #241f18;
-  --muted: #6e665b;
-  --gold: #a86f00;
-  --gold-dark: #765000;
-  --champagne: #f7f1e5;
-  --line: #ded7ca;
+  --ink: #000000;
+  --muted: #616161;
+  --gold: #ff7b54;
+  --gold-dark: #a63e24;
+  --champagne: #fff0eb;
+  --line: #e5e5e5;
   --surface: #ffffff;
-  --page: #faf9f7;
+  --page: #ffffff;
 }
 
 * {

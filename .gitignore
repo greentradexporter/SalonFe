@@ -73,3 +73,7 @@ _private_legal/
 /releases/
 /release/
 *.hprof
+
+# Generated deployment cache and separate hosted-site working copy
+/.firebase/
+/admin-site-cleanup/

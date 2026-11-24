@@ -6,17 +6,17 @@ import '../state/app_state_scope.dart';
 import '../theme/app_theme.dart';
 import '../utils/url_launcher_utils.dart';
 import '../screens/referrals/referral_screen.dart';
+import '../screens/legal/legal_screen.dart';
 import 'app_ui.dart';
-import 'owner_phone_login_dialog.dart';
 import 'status_chip.dart';
 
 enum _AccountAction {
   notifications,
-  phoneLogin,
-  revenueDetails,
-  promotionalCredits,
+  balance,
   referrals,
   support,
+  privacy,
+  terms,
   logout,
 }
 
@@ -81,8 +81,7 @@ class AccountOverflowMenu extends StatelessWidget {
   final bool canLogout;
   final Future<void> Function()? onLoggedOut;
   final NotificationOpenCallback? onNotificationOpened;
-  final Future<void> Function()? onRevenueDetailsOpened;
-  final Future<void> Function()? onPromotionalCreditsOpened;
+  final Future<void> Function()? onBalanceOpened;
 
   const AccountOverflowMenu({
     super.key,
@@ -90,8 +89,7 @@ class AccountOverflowMenu extends StatelessWidget {
     required this.canLogout,
     this.onLoggedOut,
     this.onNotificationOpened,
-    this.onRevenueDetailsOpened,
-    this.onPromotionalCreditsOpened,
+    this.onBalanceOpened,
   });
 
   @override
@@ -114,14 +112,6 @@ class AccountOverflowMenu extends StatelessWidget {
         ? account!.name.trim()
         : fallbackName;
     final accountContact = account?.contact.trim() ?? '';
-    // An owner who registered with Google or email has the salon number on
-    // their listing but not as a login credential, so phone OTP signs them
-    // in as a different account. Verifying it once here makes both work.
-    final ownerPhone = role == UserRole.owner
-        ? (appState.ownerSalonOrNull?.phone.trim() ?? '')
-        : '';
-    final phoneLoginEnabled =
-        ownerPhone.isNotEmpty && appState.isOwnerPhoneLoginEnabled(ownerPhone);
     return PopupMenuButton<_AccountAction>(
       tooltip: 'Account menu',
       icon: Badge(
@@ -141,18 +131,18 @@ class AccountOverflowMenu extends StatelessWidget {
               role,
               onNotificationOpened: onNotificationOpened,
             );
-          case _AccountAction.phoneLogin:
-            await showOwnerPhoneLoginDialog(context, ownerPhone);
-          case _AccountAction.revenueDetails:
-            await onRevenueDetailsOpened?.call();
-          case _AccountAction.promotionalCredits:
-            await onPromotionalCreditsOpened?.call();
+          case _AccountAction.balance:
+            await onBalanceOpened?.call();
           case _AccountAction.referrals:
             await Navigator.of(context).push(
               MaterialPageRoute(builder: (_) => ReferralScreen(role: role)),
             );
           case _AccountAction.support:
             await showSupportSheet(context);
+          case _AccountAction.privacy:
+            await LegalScreen.open(context, LegalDocument.privacy);
+          case _AccountAction.terms:
+            await LegalScreen.open(context, LegalDocument.terms);
           case _AccountAction.logout:
             final didLogout = await confirmAndLogout(context);
             if (didLogout && onLoggedOut != null) {
@@ -191,41 +181,13 @@ class AccountOverflowMenu extends StatelessWidget {
             title: Text('Notifications'),
           ),
         ),
-        if (role == UserRole.owner && ownerPhone.isNotEmpty)
-          PopupMenuItem(
-            value: _AccountAction.phoneLogin,
-            enabled: !phoneLoginEnabled,
-            child: ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: Icon(
-                phoneLoginEnabled
-                    ? Icons.smartphone_outlined
-                    : Icons.phonelink_lock_outlined,
-              ),
-              title: const Text('Phone login'),
-              subtitle: Text(
-                phoneLoginEnabled
-                    ? 'On · $ownerPhone'
-                    : 'Off · verify $ownerPhone to sign in with OTP',
-              ),
-            ),
-          ),
-        if (role == UserRole.owner && onRevenueDetailsOpened != null)
+        if (role == UserRole.owner && onBalanceOpened != null)
           const PopupMenuItem(
-            value: _AccountAction.revenueDetails,
+            value: _AccountAction.balance,
             child: ListTile(
               contentPadding: EdgeInsets.zero,
-              leading: Icon(Icons.query_stats_outlined),
-              title: Text('Revenue details'),
-            ),
-          ),
-        if (role == UserRole.owner && onPromotionalCreditsOpened != null)
-          const PopupMenuItem(
-            value: _AccountAction.promotionalCredits,
-            child: ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: Icon(Icons.toll_outlined),
-              title: Text('Promotional credits'),
+              leading: Icon(Icons.account_balance_wallet_outlined),
+              title: Text('Balance'),
             ),
           ),
         if (role == UserRole.owner)
@@ -243,6 +205,22 @@ class AccountOverflowMenu extends StatelessWidget {
             contentPadding: EdgeInsets.zero,
             leading: Icon(Icons.support_agent_outlined),
             title: Text('Support'),
+          ),
+        ),
+        const PopupMenuItem(
+          value: _AccountAction.privacy,
+          child: ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: Icon(Icons.privacy_tip_outlined),
+            title: Text('Privacy Policy'),
+          ),
+        ),
+        const PopupMenuItem(
+          value: _AccountAction.terms,
+          child: ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: Icon(Icons.description_outlined),
+            title: Text('Terms & Conditions'),
           ),
         ),
         if (canLogout)
@@ -304,7 +282,7 @@ Future<bool> confirmAndLogout(BuildContext context) async {
   final confirmed = await showDialog<bool>(
     context: context,
     builder: (dialogContext) => AlertDialog(
-      icon: const Icon(Icons.logout, color: AppColors.coral),
+      icon: const Icon(Icons.logout, color: AppColors.danger),
       title: const Text('Log out?'),
       content: const Text(
         'Are you sure you want to log out of this account?',
@@ -359,7 +337,7 @@ Future<void> showSupportSheet(BuildContext context) {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Pritze support',
+                          'SalonFe support',
                           style: Theme.of(context).textTheme.titleMedium,
                         ),
                         const SizedBox(height: 4),
@@ -382,6 +360,16 @@ Future<void> showSupportSheet(BuildContext context) {
                   ),
                 ],
               ),
+            ),
+            const SizedBox(height: 12),
+            TextButton.icon(
+              onPressed: () => UrlLauncherUtils.launchAction(
+                context,
+                'https://trimtime-46539.web.app/support#delete-account',
+                'Could not open account deletion requests. Contact greentradexporter@gmail.com.',
+              ),
+              icon: const Icon(Icons.person_remove_outlined),
+              label: const Text('Request account deletion'),
             ),
           ],
         ),
@@ -896,7 +884,7 @@ class _JoinNotification extends StatelessWidget {
           contentPadding: EdgeInsets.zero,
           leading: const SoftIconBox(
             icon: Icons.how_to_reg,
-            color: AppColors.goldDeep,
+            color: AppColors.primaryDark,
             size: 42,
           ),
           title: Text('Join request ${request.status.label.toLowerCase()}'),

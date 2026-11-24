@@ -209,8 +209,8 @@ function calculateDiscountQuote(
   const cashbackProinAmount = money(campaign.cashbackProinAmount);
   return {
     campaignId,
-    campaignName: String(campaign.name ?? "Pritze discount").trim() ||
-      "Pritze discount",
+    campaignName: String(campaign.name ?? "SalonFe discount").trim() ||
+      "SalonFe discount",
     fundingSource: discountFundingSource(campaign),
     discountType,
     discountPercent: percent,

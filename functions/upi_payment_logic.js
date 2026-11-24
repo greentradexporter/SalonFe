@@ -56,7 +56,7 @@ function buildCompletedBookingUpiPaymentDetails({
       pa: paymentUpiId,
       pn: normalizedSalonName,
       tr: transactionReference,
-      tn: `Pritze booking ${normalizedBookingId}`,
+      tn: `SalonFe booking ${normalizedBookingId}`,
       am: amount.toFixed(2),
       cu: "INR",
     });

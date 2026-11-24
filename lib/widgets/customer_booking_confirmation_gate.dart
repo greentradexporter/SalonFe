@@ -321,7 +321,7 @@ class _CustomerBookingConfirmationGateState
         : isRejected
         ? '${salon?.name ?? 'The salon'} is busy right now. Try a different salon.'
         : '${salon?.name ?? 'The salon'} cancelled your booking.';
-    final accent = isNoResponse ? AppColors.amber : AppColors.coral;
+    final accent = isNoResponse ? AppColors.primary : AppColors.danger;
     final icon = isNoResponse
         ? Icons.hourglass_empty_rounded
         : isRejected

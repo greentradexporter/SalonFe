@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../widgets/brand_header.dart';
 import '../../models/app_models.dart';
 import '../../state/app_state_scope.dart';
 import '../../theme/app_theme.dart';
@@ -12,7 +13,10 @@ import '../../widgets/app_ui.dart';
 import '../../widgets/auth_login_panel.dart';
 import '../referrals/referral_screen.dart';
 import 'customer_profile_editor.dart';
+import '../legal/legal_screen.dart';
+import '../../widgets/customer_location_gate.dart';
 import 'my_bookings_screen.dart';
+import '../entry/account_entry_screen.dart';
 
 class CustomerProfileScreen extends StatelessWidget {
   const CustomerProfileScreen({super.key});
@@ -25,7 +29,7 @@ class CustomerProfileScreen extends StatelessWidget {
         : null;
 
     return Scaffold(
-      appBar: AppBar(
+      appBar: SalonFeAppBar(
         title: const Text('Profile'),
         actions: [
           CustomerNotificationButton(
@@ -126,10 +130,31 @@ class CustomerProfileScreen extends StatelessWidget {
                 ),
                 const Divider(height: 1),
                 ListTile(
+                  key: const ValueKey('customer-profile-location'),
+                  leading: const Icon(Icons.location_on_outlined),
+                  title: const Text('Discovery location'),
+                  subtitle: const Text('Allow or clear saved location'),
+                  onTap: () => _manageLocation(context),
+                ),
+                ListTile(
+                  key: const ValueKey('customer-profile-privacy'),
+                  leading: const Icon(Icons.privacy_tip_outlined),
+                  title: const Text('Privacy Policy'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => LegalScreen.open(context, LegalDocument.privacy),
+                ),
+                ListTile(
+                  key: const ValueKey('customer-profile-terms'),
+                  leading: const Icon(Icons.description_outlined),
+                  title: const Text('Terms & Conditions'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => LegalScreen.open(context, LegalDocument.terms),
+                ),
+                ListTile(
                   key: const ValueKey('customer-profile-support'),
                   leading: const Icon(Icons.support_agent_outlined),
                   title: const Text('Support'),
-                  subtitle: const Text('Contact Pritze support'),
+                  subtitle: const Text('Contact SalonFe support'),
                   trailing: const Icon(Icons.chevron_right),
                   onTap: () => showSupportSheet(context),
                 ),
@@ -143,12 +168,7 @@ class CustomerProfileScreen extends StatelessWidget {
               onPressed: () async {
                 final didLogout = await confirmAndLogout(context);
                 if (didLogout && context.mounted) {
-                  Navigator.of(context).pushAndRemoveUntil(
-                    MaterialPageRoute(
-                      builder: (_) => const CustomerProfileScreen(),
-                    ),
-                    (route) => false,
-                  );
+                  openAccountHome(context);
                 }
               },
               icon: const Icon(Icons.logout),
@@ -158,6 +178,53 @@ class CustomerProfileScreen extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  Future<void> _manageLocation(BuildContext context) async {
+    final choice = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Discovery location'),
+        content: const Text(
+          'Location is optional. Allow a fresh location reading or clear the saved discovery location from your account. Device permissions can also be changed in Settings. Arrival sharing has separate booking controls.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Close'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, 'clear'),
+            child: const Text('Clear saved location'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, 'allow'),
+            child: const Text('Allow location'),
+          ),
+        ],
+      ),
+    );
+    if (!context.mounted || choice == null) return;
+    try {
+      if (choice == 'clear') {
+        await CustomerLocationGate.clear(context);
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Saved discovery location cleared.')),
+          );
+        }
+      } else {
+        await CustomerLocationGate.request(context, force: true);
+      }
+    } catch (_) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Could not update location. Please try again.'),
+          ),
+        );
+      }
+    }
   }
 
   Future<void> _showLogin(BuildContext context) {
@@ -775,7 +842,7 @@ class _ProinActivityTile extends StatelessWidget {
           title: 'Held for booking',
           subtitle: 'Reserved until the booking is completed or cancelled',
           icon: Icons.lock_clock_outlined,
-          color: AppColors.amber,
+          color: AppColors.primary,
           amount: '-${entry.amountProin}',
         );
       case 'release':
@@ -807,7 +874,7 @@ class _ProinActivityTile extends StatelessWidget {
       case 'revoke':
         return (
           title: 'Balance adjusted',
-          subtitle: 'Unused promotional Proin removed by Pritze',
+          subtitle: 'Unused promotional Proin removed by SalonFe',
           icon: Icons.remove_circle_outline_rounded,
           color: Colors.redAccent,
           amount: '-${entry.amountProin}',
@@ -975,10 +1042,10 @@ class _ProfileHero extends StatelessWidget {
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         gradient: LinearGradient(
-          colors: [Colors.white, AppColors.champagne.withAlpha(210)],
+          colors: [Colors.white, AppColors.primarySoft.withAlpha(210)],
         ),
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: AppColors.gold.withAlpha(80)),
+        border: Border.all(color: AppColors.primary.withAlpha(80)),
       ),
       child: Row(
         children: [
@@ -1021,7 +1088,7 @@ class _ProfileHero extends StatelessWidget {
                     children: [
                       const Icon(
                         Icons.star_rounded,
-                        color: AppColors.amber,
+                        color: AppColors.primary,
                         size: 18,
                       ),
                       const SizedBox(width: 4),
@@ -1162,7 +1229,7 @@ class _StyleGallery extends StatelessWidget {
                 height: 112,
                 fit: BoxFit.cover,
                 errorBuilder: (_, _, _) => const ColoredBox(
-                  color: AppColors.champagne,
+                  color: AppColors.primarySoft,
                   child: SizedBox(
                     width: 112,
                     child: Icon(Icons.image_outlined),
@@ -1200,7 +1267,7 @@ class _SalonRatingsSection extends StatelessWidget {
                   children: [
                     const Icon(
                       Icons.star_rounded,
-                      color: AppColors.amber,
+                      color: AppColors.primary,
                       size: 30,
                     ),
                     const SizedBox(width: 8),
@@ -1366,7 +1433,7 @@ class _RatingEntry extends StatelessWidget {
                       index < rating
                           ? Icons.star_rounded
                           : Icons.star_outline_rounded,
-                      color: AppColors.amber,
+                      color: AppColors.primary,
                       size: 17,
                     ),
                 ],

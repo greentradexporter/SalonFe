@@ -308,7 +308,7 @@ class _BookingBottomCardShell extends StatelessWidget {
               gradient: LinearGradient(
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
-                colors: [Colors.white, AppColors.champagne.withAlpha(205)],
+                colors: [Colors.white, AppColors.primarySoft.withAlpha(205)],
               ),
               borderRadius: radius,
               border: Border.all(color: accent.withAlpha(72)),
@@ -383,7 +383,7 @@ class _PendingSalonResponseLine extends StatelessWidget {
     return Text(
       'Waiting for the salon to accept. Your reach-by time will appear after confirmation.',
       style: Theme.of(context).textTheme.bodySmall?.copyWith(
-        color: AppColors.goldDeep,
+        color: AppColors.primaryDark,
         fontWeight: FontWeight.w600,
       ),
     );
@@ -398,7 +398,7 @@ class _PendingOwnerDecisionLine extends StatelessWidget {
     return Text(
       'Accept or reject this request. The customer reach-by time will be set after acceptance.',
       style: Theme.of(context).textTheme.bodySmall?.copyWith(
-        color: AppColors.goldDeep,
+        color: AppColors.primaryDark,
         fontWeight: FontWeight.w600,
       ),
     );
@@ -430,11 +430,11 @@ class _ServicePayablePendingLine extends StatelessWidget {
 }
 
 Color _bookingPanelAccent(BookingStatus status) => switch (status) {
-  BookingStatus.pending => AppColors.goldDeep,
+  BookingStatus.pending => AppColors.primaryDark,
   BookingStatus.confirmed => AppColors.leaf,
   BookingStatus.inProgress => AppColors.blue,
   BookingStatus.completed => AppColors.success,
-  BookingStatus.cancelled || BookingStatus.rejected => AppColors.coral,
+  BookingStatus.cancelled || BookingStatus.rejected => AppColors.danger,
 };
 
 class _BookingArrivalTimerLine extends StatefulWidget {
@@ -521,7 +521,7 @@ class _BookingArrivalTimerLineState extends State<_BookingArrivalTimerLine> {
             overflow: TextOverflow.ellipsis,
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
               color: remaining.isNegative
-                  ? AppColors.coral
+                  ? AppColors.danger
                   : AppColors.primaryDark,
               fontWeight: FontWeight.w600,
             ),
@@ -610,8 +610,8 @@ class _TimelineStep extends StatelessWidget {
   Widget build(BuildContext context) {
     final color = switch (step.state) {
       _StepState.done => AppColors.success,
-      _StepState.current => AppColors.goldDeep,
-      _StepState.failed => AppColors.coral,
+      _StepState.current => AppColors.primaryDark,
+      _StepState.failed => AppColors.danger,
       _StepState.upcoming => AppColors.muted,
     };
     final icon = switch (step.state) {

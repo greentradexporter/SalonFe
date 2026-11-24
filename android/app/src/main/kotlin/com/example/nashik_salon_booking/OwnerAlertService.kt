@@ -168,7 +168,7 @@ class OwnerAlertService : android.app.Service() {
                 NotificationManager.IMPORTANCE_LOW,
             ).apply {
                 description =
-                    "Keeps Pritze reachable so booking requests ring even when the app is closed."
+                    "Keeps SalonFe reachable so booking requests ring even when the app is closed."
                 setShowBadge(false)
                 enableVibration(false)
                 setSound(null, null)
@@ -192,8 +192,9 @@ class OwnerAlertService : android.app.Service() {
         )
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("Ready for booking requests")
-            .setContentText("Pritze will ring when a customer books.")
-            .setSmallIcon(android.R.drawable.ic_popup_reminder)
+            .setContentText("SalonFe will ring when a customer books.")
+            .setSmallIcon(R.drawable.ic_stat_salonfe)
+            .setColor(android.graphics.Color.rgb(255, 123, 84))
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setOngoing(true)
             .setSilent(true)

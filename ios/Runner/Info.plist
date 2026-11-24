@@ -7,7 +7,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>Pritze</string>
+	<string>SalonFe</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -15,7 +15,7 @@
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>Pritze</string>
+	<string>SalonFe</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
@@ -40,13 +40,17 @@
 				<string>app-1-3474382418-ios-73bf27d33b1eddec8c498b</string>
 			</array>
 		</dict>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>salonfe</string>
+			</array>
+		</dict>
 	</array>
 	<key>CFBundleVersion</key>
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
-	<!-- The app only uses HTTPS, which is exempt. Declaring it here answers
-	     the export compliance question at build time; without it every upload
-	     lands in App Store Connect as "Missing Compliance" and cannot be
-	     given to testers until someone answers it by hand. -->
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<key>LSApplicationQueriesSchemes</key>
@@ -62,11 +66,11 @@
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Pritze lets salon owners choose photos for their salon profile.</string>
+	<string>SalonFe lets salon owners choose photos for their salon profile.</string>
 	<key>NSContactsUsageDescription</key>
-	<string>Pritze lets you choose a phone number to fill the sign-in form.</string>
+	<string>SalonFe lets you choose a phone number to fill the sign-in form.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>Pritze uses your location only while the app is open when you choose to share your journey to a confirmed salon booking.</string>
+	<string>SalonFe uses your location while the app is open for salon discovery. With your permission, an approximate location is saved privately to your account. Arrival sharing with your booked salon is a separate choice.</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>fetch</string>
@@ -112,5 +116,7 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>FlutterDeepLinkingEnabled</key>
+	<false/>
 </dict>
 </plist>

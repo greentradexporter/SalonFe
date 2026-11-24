@@ -228,7 +228,7 @@ class OwnerAlertDeviceSettings {
 String ownerAlertBlockerMessage(OwnerAlertBlocker blocker) {
   return switch (blocker) {
     OwnerAlertBlocker.notificationsDisabled =>
-      'Booking requests cannot alert you. Turn on notifications for Pritze.',
+      'Booking requests cannot alert you. Turn on notifications for SalonFe.',
     OwnerAlertBlocker.noPushToken =>
       'This device is not registered for booking alerts. Sign out and sign in '
           'again to reconnect it.',
@@ -236,7 +236,7 @@ String ownerAlertBlockerMessage(OwnerAlertBlocker blocker) {
       'Requests will not show on a locked screen. Allow full screen alerts so '
           'they ring like a call.',
     OwnerAlertBlocker.backgroundRestricted =>
-      'This phone is set to "Restricted" for Pritze, so booking requests '
+      'This phone is set to "Restricted" for SalonFe, so booking requests '
           'cannot arrive at all. Tap Fix, open Battery, and change '
           'Restricted to Unrestricted.',
     OwnerAlertBlocker.alertChannelBlocked =>

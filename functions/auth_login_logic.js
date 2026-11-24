@@ -75,7 +75,7 @@ function phoneKey(phone) {
 }
 
 function fallbackName(email) {
-  return email ? email.split("@")[0] : "Pritze user";
+  return email ? email.split("@")[0] : "SalonFe user";
 }
 
 function resolveClaimName({

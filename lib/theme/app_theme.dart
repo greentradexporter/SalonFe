@@ -1,24 +1,23 @@
 import 'package:flutter/material.dart';
 
 class AppColors {
-  static const Color ink = Color(0xFF2C261D);
-  static const Color muted = Color(0xFF756C60);
-  static const Color line = Color(0xFFE7E0D5);
-  static const Color iosLine = Color(0xFFD2C8B8);
+  static const Color ink = Color(0xFF000000);
+  static const Color muted = Color(0xFF616161);
+  static const Color line = Color(0xFFE5E5E5);
+  static const Color iosLine = Color(0xFFD4D4D4);
   static const Color surface = Color(0xFFFFFFFF);
-  static const Color canvas = Color(0xFFFAF9F6);
-  static const Color primary = Color(0xFFA66F12);
-  static const Color primaryDark = Color(0xFF6D4808);
-  static const Color charcoal = Color(0xFF3B3327);
-  static const Color gold = Color(0xFFC18B2D);
-  static const Color goldDeep = Color(0xFF7B5109);
-  static const Color champagne = Color(0xFFF8EDD5);
-  static const Color copper = Color(0xFFB8662C);
-  static const Color rose = Color(0xFFB64D57);
+  static const Color canvas = surface;
+  static const Color primary = Color(0xFFFF7B54);
+  // Dark coral is reserved for small text on white. Black on the primary
+  // coral fill keeps button labels readable at normal text sizes.
+  static const Color primaryDark = Color(0xFFA63E24);
+  static const Color primarySoft = Color(0xFFFFF0EB);
+  static const Color primaryBorder = Color(0xFFFFC4B2);
+  static const Color onPrimary = ink;
+  static const Color charcoal = Color(0xFF242424);
   static const Color leaf = Color(0xFF2E7D55);
   static const Color mint = Color(0xFFEDF5EF);
-  static const Color amber = Color(0xFFD08A00);
-  static const Color coral = Color(0xFFC04E4E);
+  static const Color danger = Color(0xFFC04E4E);
   static const Color blue = Color(0xFF356C9A);
   static const Color plum = Color(0xFF735B91);
   static const Color success = leaf;
@@ -30,16 +29,16 @@ class AppTheme {
     const borderColor = AppColors.line;
     final colorScheme = ColorScheme.light(
       primary: actionColor,
-      onPrimary: Colors.white,
-      primaryContainer: AppColors.champagne,
-      onPrimaryContainer: AppColors.goldDeep,
-      secondary: AppColors.leaf,
-      onSecondary: Colors.white,
-      secondaryContainer: AppColors.mint,
-      onSecondaryContainer: AppColors.leaf,
+      onPrimary: AppColors.onPrimary,
+      primaryContainer: AppColors.primarySoft,
+      onPrimaryContainer: AppColors.primaryDark,
+      secondary: actionColor,
+      onSecondary: AppColors.onPrimary,
+      secondaryContainer: AppColors.primarySoft,
+      onSecondaryContainer: AppColors.primaryDark,
       surface: AppColors.surface,
       onSurface: AppColors.ink,
-      error: AppColors.coral,
+      error: AppColors.danger,
       outline: borderColor,
     );
 
@@ -161,7 +160,7 @@ class AppTheme {
       filledButtonTheme: FilledButtonThemeData(
         style: FilledButton.styleFrom(
           backgroundColor: actionColor,
-          foregroundColor: Colors.white,
+          foregroundColor: AppColors.onPrimary,
           minimumSize: const Size(0, 44),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
           textStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
@@ -169,9 +168,10 @@ class AppTheme {
       ),
       outlinedButtonTheme: OutlinedButtonThemeData(
         style: OutlinedButton.styleFrom(
-          foregroundColor: actionColor,
+          foregroundColor: AppColors.ink,
+          iconColor: actionColor,
           backgroundColor: Colors.white,
-          side: BorderSide(color: borderColor),
+          side: const BorderSide(color: AppColors.primaryBorder),
           minimumSize: const Size(0, 44),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
           textStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
@@ -179,7 +179,8 @@ class AppTheme {
       ),
       textButtonTheme: TextButtonThemeData(
         style: TextButton.styleFrom(
-          foregroundColor: actionColor,
+          foregroundColor: AppColors.ink,
+          iconColor: actionColor,
           minimumSize: const Size(44, 40),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
           textStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
@@ -211,7 +212,7 @@ class AppTheme {
       ),
       chipTheme: ChipThemeData(
         backgroundColor: AppColors.surface,
-        selectedColor: AppColors.champagne,
+        selectedColor: AppColors.primarySoft,
         side: BorderSide(color: borderColor),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
         labelStyle: const TextStyle(
@@ -223,7 +224,7 @@ class AppTheme {
       navigationBarTheme: NavigationBarThemeData(
         backgroundColor: Colors.white,
         elevation: 0,
-        indicatorColor: AppColors.champagne,
+        indicatorColor: AppColors.primarySoft,
         height: 62,
         labelTextStyle: WidgetStateProperty.resolveWith((states) {
           final selected = states.contains(WidgetState.selected);

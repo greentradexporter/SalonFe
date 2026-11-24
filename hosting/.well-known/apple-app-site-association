@@ -2,11 +2,17 @@
   "applinks": {
     "details": [
       {
-        "appIDs": ["A82B2BQ54N.com.trimtime.app"],
+        "appIDs": [
+          "A82B2BQ54N.com.trimtime.app"
+        ],
         "components": [
           {
             "/": "/r/*",
             "comment": "Pritze customer and salon referral links"
+          },
+          {
+            "/": "/s/*",
+            "comment": "SalonFe individual salon links"
           }
         ]
       }

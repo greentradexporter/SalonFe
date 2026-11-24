@@ -248,7 +248,7 @@ class MainActivity : FlutterActivity() {
                     }
                     "openBatteryOptimizationSettings" -> {
                         // App info, not the battery-optimisation list. That list
-                        // filters to "Not optimized" apps by default, so Pritze -
+                        // filters to "Not optimized" apps by default, so SalonFe -
                         // which is optimised, that being the problem - is hidden
                         // until the owner finds the "All apps" dropdown. From App
                         // info they tap Battery and choose Unrestricted, which is

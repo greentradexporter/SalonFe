@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/services.dart';
 
+import '../../widgets/brand_header.dart';
 import '../../models/app_models.dart';
 import '../../state/app_state.dart';
 import '../../state/app_state_scope.dart';
@@ -259,7 +260,7 @@ class _SalonBookingScreenState extends State<SalonBookingScreen> {
             (instantServices.length != requestedInstantIds.length ||
                 instantServices.any((item) => !item.isAvailable)))) {
       return Scaffold(
-        appBar: AppBar(title: const Text('Book')),
+        appBar: SalonFeAppBar(title: const Text('Book')),
         body: const EmptyState(
           icon: Icons.event_busy,
           title: 'Service unavailable',
@@ -306,7 +307,7 @@ class _SalonBookingScreenState extends State<SalonBookingScreen> {
         : _customerProinWallet(appState);
 
     return Scaffold(
-      appBar: AppBar(
+      appBar: SalonFeAppBar(
         title: Text(
           isRescheduling
               ? 'Reschedule'
@@ -1138,7 +1139,7 @@ class _BookingLoginSheet extends StatelessWidget {
                     height: 52,
                     width: 52,
                     decoration: BoxDecoration(
-                      color: AppColors.champagne,
+                      color: AppColors.primarySoft,
                       borderRadius: BorderRadius.circular(16),
                     ),
                     child: const Icon(
@@ -1174,9 +1175,9 @@ class _BookingLoginSheet extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.all(14),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFFFF8EA),
+                  color: AppColors.primarySoft,
                   borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: const Color(0xFFF0D6A5)),
+                  border: Border.all(color: AppColors.primaryBorder),
                 ),
                 child: const Row(
                   children: [
@@ -1292,7 +1293,7 @@ class _BookingSuccessDialog extends StatelessWidget {
                       gradient: LinearGradient(
                         begin: Alignment.topCenter,
                         end: Alignment.bottomCenter,
-                        colors: [Color(0xFFFFF4DC), Color(0xFFFFFCF7)],
+                        colors: [AppColors.primarySoft, AppColors.primarySoft],
                       ),
                     ),
                     child: Column(
@@ -1364,7 +1365,7 @@ class _BookingSuccessDialog extends StatelessWidget {
                         const SizedBox(height: 10),
                         Container(
                           decoration: BoxDecoration(
-                            color: const Color(0xFFFBFAF7),
+                            color: AppColors.surface,
                             borderRadius: BorderRadius.circular(18),
                             border: Border.all(color: AppColors.line),
                           ),
@@ -1400,7 +1401,7 @@ class _BookingSuccessDialog extends StatelessWidget {
                         Container(
                           padding: const EdgeInsets.all(14),
                           decoration: BoxDecoration(
-                            color: AppColors.champagne.withAlpha(116),
+                            color: AppColors.primarySoft.withAlpha(116),
                             borderRadius: BorderRadius.circular(16),
                           ),
                           child: Row(
@@ -1514,7 +1515,7 @@ class _BookingSuccessDetailRow extends StatelessWidget {
             width: 34,
             height: 34,
             decoration: BoxDecoration(
-              color: AppColors.champagne.withAlpha(148),
+              color: AppColors.primarySoft.withAlpha(148),
               borderRadius: BorderRadius.circular(10),
             ),
             child: Icon(icon, color: AppColors.primaryDark, size: 18),
@@ -1561,7 +1562,7 @@ class _SignInForOfferCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       decoration: BoxDecoration(
-        color: AppColors.champagne.withAlpha(88),
+        color: AppColors.primarySoft.withAlpha(88),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: AppColors.primary.withAlpha(32)),
       ),
@@ -1610,13 +1611,13 @@ class _CheckoutOfferLoadErrorCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return GlassCard(
       padding: const EdgeInsets.all(14),
-      color: AppColors.amber.withAlpha(12),
+      color: AppColors.primary.withAlpha(12),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const SoftIconBox(
             icon: Icons.local_offer_outlined,
-            color: AppColors.amber,
+            color: AppColors.primary,
             size: 38,
           ),
           const SizedBox(width: 10),
@@ -1659,7 +1660,7 @@ class _CheckoutOffersLoadingCard extends StatelessWidget {
       key: const ValueKey('checkout-discount-offers-loading'),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
       decoration: BoxDecoration(
-        color: const Color(0xFFFFFBF2),
+        color: AppColors.primarySoft,
         borderRadius: BorderRadius.circular(18),
         border: Border.all(color: AppColors.primary.withAlpha(44)),
       ),
@@ -1724,7 +1725,7 @@ class _CheckoutVisibleOffersCardState
       key: const ValueKey('checkout-visible-discount-offers'),
       decoration: BoxDecoration(
         gradient: const LinearGradient(
-          colors: [Color(0xFFFFF1CD), Color(0xFFFFFCF5)],
+          colors: [AppColors.primarySoft, AppColors.primarySoft],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
@@ -1873,7 +1874,7 @@ class _CheckoutVisibleOfferTile extends StatelessWidget {
             border: Border.all(
               color: applied
                   ? AppColors.success.withAlpha(90)
-                  : AppColors.gold.withAlpha(70),
+                  : AppColors.primary.withAlpha(70),
             ),
           ),
           child: Row(
@@ -1967,7 +1968,7 @@ class _CheckoutCouponCard extends StatelessWidget {
       key: const ValueKey('checkout-coupon-card'),
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: const Color(0xFFFFFBF4),
+        color: AppColors.primarySoft,
         borderRadius: BorderRadius.circular(18),
         border: Border.all(
           color: applied
@@ -1996,7 +1997,7 @@ class _CheckoutCouponCard extends StatelessWidget {
                     ),
                     SizedBox(height: 2),
                     Text(
-                      'Enter a code you received from Pritze.',
+                      'Enter a code you received from SalonFe.',
                       style: TextStyle(fontSize: 12),
                     ),
                   ],
@@ -2105,10 +2106,10 @@ class _DiscountQuoteCard extends StatelessWidget {
       decoration: BoxDecoration(
         gradient: value.hasDiscount
             ? const LinearGradient(
-                colors: [Color(0xFFFFF4D8), Color(0xFFFFFBF2)],
+                colors: [AppColors.primarySoft, AppColors.primarySoft],
               )
             : null,
-        color: value.hasDiscount ? null : const Color(0xFFF8F6F1),
+        color: value.hasDiscount ? null : AppColors.surface,
         borderRadius: BorderRadius.circular(18),
         border: Border.all(
           color: value.hasDiscount
@@ -2220,9 +2221,9 @@ class _ProinRedemptionCard extends StatelessWidget {
     return Container(
       key: const ValueKey('booking-proin-redemption'),
       decoration: BoxDecoration(
-        color: const Color(0xFFFFF8EE),
+        color: AppColors.primarySoft,
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: AppColors.gold.withAlpha(85)),
+        border: Border.all(color: AppColors.primary.withAlpha(85)),
       ),
       child: InkWell(
         borderRadius: BorderRadius.circular(18),
@@ -2253,7 +2254,7 @@ class _ProinRedemptionCard extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
                         color: error.isNotEmpty
-                            ? AppColors.coral
+                            ? AppColors.danger
                             : AppColors.muted,
                         fontWeight: FontWeight.w600,
                       ),
@@ -2432,7 +2433,7 @@ class _BookingSummary extends StatelessWidget {
                       AppPill(
                         icon: Icons.currency_rupee,
                         label: '0 booking fee',
-                        color: AppColors.goldDeep,
+                        color: AppColors.primaryDark,
                       ),
                   ],
                 ),
@@ -2475,7 +2476,7 @@ class _InstantBookingCard extends StatelessWidget {
     }
 
     return GlassCard(
-      color: AppColors.champagne.withAlpha(112),
+      color: AppColors.primarySoft.withAlpha(112),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -2527,7 +2528,7 @@ class _InstantBookingCard extends StatelessWidget {
                         ? 'This salon has paused instant bookings. You can still schedule an appointment.'
                         : 'Instant booking is unavailable for this service right now.',
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: AppColors.coral,
+                      color: AppColors.danger,
                       fontWeight: FontWeight.w600,
                     ),
                   ),

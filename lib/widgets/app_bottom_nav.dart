@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import '../screens/customer/customer_home_screen.dart';
 import '../screens/customer/customer_profile_screen.dart';
 import '../screens/customer/my_bookings_screen.dart';
-import '../screens/partner/partner_hub_screen.dart';
 import '../state/app_state_scope.dart';
 import '../theme/app_theme.dart';
 import 'booking_status_timeline.dart';
@@ -71,11 +70,6 @@ class AppBottomNav extends StatelessWidget {
                 selectedIcon: Icon(Icons.person),
                 label: 'Profile',
               ),
-              NavigationDestination(
-                icon: Icon(Icons.business_center_outlined),
-                selectedIcon: Icon(Icons.business_center),
-                label: 'Partner',
-              ),
             ],
           ),
         ),
@@ -87,8 +81,6 @@ class AppBottomNav extends StatelessWidget {
     switch (index) {
       case 1:
         return const CustomerProfileScreen();
-      case 2:
-        return const PartnerHubScreen();
       case 0:
       default:
         return const CustomerHomeScreen();

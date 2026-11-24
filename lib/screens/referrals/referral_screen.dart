@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:share_plus/share_plus.dart';
 
+import '../../widgets/brand_header.dart';
 import '../../models/app_models.dart';
 import '../../state/app_state_scope.dart';
 import '../../theme/app_theme.dart';
@@ -31,7 +32,7 @@ class _ReferralScreenState extends State<ReferralScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Refer and invite')),
+      appBar: SalonFeAppBar(title: const Text('Refer and invite')),
       body: FutureBuilder<(ReferralCodes, ReferralSummary)>(
         future: _referralData,
         builder: (context, snapshot) {
@@ -51,7 +52,7 @@ class _ReferralScreenState extends State<ReferralScreen> {
             padding: const EdgeInsets.fromLTRB(18, 18, 18, 30),
             children: [
               GlassCard(
-                color: AppColors.champagne,
+                color: AppColors.primarySoft,
                 child: Column(
                   children: [
                     const SoftIconBox(
@@ -62,8 +63,8 @@ class _ReferralScreenState extends State<ReferralScreen> {
                     const SizedBox(height: 12),
                     Text(
                       widget.role == UserRole.customer
-                          ? 'Invite friends to Pritze'
-                          : 'Grow the Pritze community',
+                          ? 'Invite friends to SalonFe'
+                          : 'Grow the SalonFe community',
                       style: Theme.of(context).textTheme.headlineSmall,
                       textAlign: TextAlign.center,
                     ),
@@ -161,7 +162,7 @@ class _ReferralCodeCard extends StatelessWidget {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
             decoration: BoxDecoration(
-              color: AppColors.champagne,
+              color: AppColors.primarySoft,
               borderRadius: BorderRadius.circular(12),
             ),
             child: Row(
@@ -244,7 +245,7 @@ class _ReferralCodeCard extends StatelessWidget {
     await SharePlus.instance.share(
       ShareParams(
         text: message,
-        subject: 'Join me on Pritze',
+        subject: 'Join me on SalonFe',
         sharePositionOrigin: origin,
       ),
     );
@@ -342,7 +343,7 @@ class _ReferralProgressRow extends StatelessWidget {
           icon: Icons.hourglass_top_rounded,
           label: '$pending pending',
           color: AppColors.primaryDark,
-          backgroundColor: AppColors.champagne,
+          backgroundColor: AppColors.primarySoft,
         ),
         const SizedBox(width: 8),
         AppPill(
@@ -402,7 +403,7 @@ String _customerShareMessage(String code, ReferralSummary summary) {
           summary.customerReferredRewardProin > 0
       ? 'After your first completed booking, you earn ${summary.customerReferredRewardProin} Proin and I earn ${summary.customerInviterRewardProin} Proin. '
       : '';
-  return 'Join Pritze as a customer. ${reward}Use my referral code $code during registration: $_referralBaseUrl/$code?role=customer';
+  return 'Join SalonFe as a customer. ${reward}Use my referral code $code during registration: $_referralBaseUrl/$code?role=customer';
 }
 
 String _salonShareMessage(String code, ReferralSummary summary) {
@@ -411,7 +412,7 @@ String _salonShareMessage(String code, ReferralSummary summary) {
           summary.salonReferredRewardProin > 0
       ? 'After your salon is approved and completes its first booking, you earn ${summary.salonReferredRewardProin} Proin and I earn ${summary.salonInviterRewardProin} Proin. '
       : '';
-  return 'Join Pritze as a salon owner. ${reward}Use my referral code $code during registration: $_referralBaseUrl/$code?role=owner';
+  return 'Join SalonFe as a salon owner. ${reward}Use my referral code $code during registration: $_referralBaseUrl/$code?role=owner';
 }
 
 String _friendlyReferralError(Object? error) {

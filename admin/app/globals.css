@@ -514,3 +514,10 @@ main { min-width:0; }
 @media (max-width:1120px) { .guide-section-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }.guide-example { grid-template-columns:1fr; }.guide-example>p { grid-column:1; } }
 @media (max-width:780px) { .guide-hero { align-items:flex-start; padding:23px; }.guide-orientation { width:190px; }.guide-basics,.guide-two-column,.guide-setup-flow ol { grid-template-columns:1fr; }.guide-playbook-intro { display:block; }.guide-playbook-intro button { margin-top:15px; }.guide-steps { grid-template-columns:1fr; }.guide-heading { align-items:flex-start; }.guide-example-math { justify-content:flex-start; flex-wrap:wrap; }.guide-help-footer { align-items:flex-start; } }
 @media (max-width:560px) { .guide-hero { display:grid; }.guide-orientation { width:100%; }.guide-hero h2 { font-size:25px; }.guide-section-grid { grid-template-columns:1fr; }.guide-section-grid article { min-height:165px; }.guide-heading { display:block; }.guide-heading>p { margin-top:7px; }.guide-playbook { padding:17px; }.guide-example-math { display:grid; grid-template-columns:1fr; }.guide-example-math i { display:none; }.guide-help-footer { display:grid; }.guide-help-footer>button,.guide-hero-actions button,.guide-playbook-intro button { width:100%; }.guide-hero-actions { display:grid; } }
+
+/* SalonFe identity; status colours retain their existing meaning. */
+:root { --gold:#bd4725; --gold-dark:#94351c; --champagne:#fff0ea; }
+.brand-mark { background:#FF7B54; font-family:inherit; font-weight:800; }
+.access-lock { background:#FF7B54; }
+
+.brand-mark img,.access-lock img { width:100%; height:100%; object-fit:contain; border-radius:inherit; }

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 
+import '../../widgets/brand_header.dart';
 import '../../models/app_models.dart';
 import '../../state/app_state_scope.dart';
 import '../../theme/app_theme.dart';
@@ -65,7 +66,7 @@ class _CustomerProfileEditorState extends State<CustomerProfileEditor> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Edit your profile')),
+      appBar: SalonFeAppBar(title: const Text('Edit your profile')),
       bottomNavigationBar: CustomerActiveBookingFooter(
         onOpenBooking: () => Navigator.of(
           context,
@@ -227,7 +228,7 @@ class _CustomerProfileEditorState extends State<CustomerProfileEditor> {
                         url,
                         fit: BoxFit.cover,
                         errorBuilder: (_, _, _) => const ColoredBox(
-                          color: AppColors.champagne,
+                          color: AppColors.primarySoft,
                           child: Icon(Icons.image_outlined),
                         ),
                       ),
@@ -410,7 +411,7 @@ class _EditableAvatar extends StatelessWidget {
   Widget build(BuildContext context) {
     return CircleAvatar(
       radius: 52,
-      backgroundColor: AppColors.champagne,
+      backgroundColor: AppColors.primarySoft,
       foregroundColor: AppColors.primary,
       backgroundImage: photoUrl.isEmpty ? null : NetworkImage(photoUrl),
       child: photoUrl.isNotEmpty

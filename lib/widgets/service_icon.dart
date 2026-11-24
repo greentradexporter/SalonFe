@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../models/service_catalog.dart';
-import '../theme/app_theme.dart';
+import 'service_illustration.dart';
 
 class ServiceImageIcon extends StatelessWidget {
   final String category;
@@ -35,25 +35,11 @@ class ServiceImageIcon extends StatelessWidget {
           ),
         ],
       ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(7),
-        child: Image.asset(
-          serviceIconAssetForService(
-            serviceName ?? category,
-            category: category,
-          ),
-          fit: BoxFit.contain,
-          errorBuilder: (context, error, stackTrace) {
-            return ColoredBox(
-              color: AppColors.champagne,
-              child: Icon(
-                serviceFallbackIconForCategory(category),
-                color: accent,
-                size: size * 0.46,
-              ),
-            );
-          },
-        ),
+      child: ServiceIllustration(
+        category: category,
+        serviceName: serviceName,
+        size: size,
+        color: accent,
       ),
     );
   }

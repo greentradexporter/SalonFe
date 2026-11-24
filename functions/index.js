@@ -1,3 +1,4 @@
+const {salonBalanceSummary, hasNamedBarber} = require("./salon_shop_logic");
 const crypto = require("node:crypto");
 const admin = require("firebase-admin");
 // Required lazily at their only call sites. Loading these at module scope
@@ -47,6 +48,7 @@ const {
   isBlockingBooking,
   isInstantEnabledForSalon,
   isWithinSalonHours,
+  normalizeClosedWeekdays,
   serviceAutoCompleteAtMillis,
   shouldAutoCompleteService,
   shouldAlertOwnerForBooking,
@@ -125,7 +127,7 @@ const {
   validLocationUpdate,
 } = require("./arrival_tracking_logic");
 const {setGlobalOptions} = require("firebase-functions/v2");
-const {HttpsError, onCall} = require("firebase-functions/v2/https");
+const {HttpsError, onCall, onRequest} = require("firebase-functions/v2/https");
 const {
   onDocumentCreated,
   onDocumentUpdated,
@@ -188,7 +190,7 @@ function onMobileCall(options, handler) {
 // This stays at the last version known to be publicly downloadable. Release
 // builds update android_release.json automatically, while Google Play remains
 // the authority that decides when the candidate can be advertised to users.
-const ANDROID_LAST_CONFIRMED_PUBLIC_VERSION_CODE = 31;
+const ANDROID_LAST_CONFIRMED_PUBLIC_VERSION_CODE = 59;
 const ANDROID_PLAY_STORE_URL =
   "https://play.google.com/store/apps/details?id=com.trimtime.app";
 const ANDROID_RELEASES_API_URL =
@@ -201,7 +203,7 @@ let androidReleaseCache = {expiresAt: 0, versionCode: null};
 // Floor only. The build being shipped lives in ios_release.json, so this no
 // longer has to be edited every release - which is why it had drifted nine
 // versions behind the App Store and pinned every iOS user to build 29.
-const IOS_LAST_CONFIRMED_PUBLIC_BUILD_NUMBER = 28;
+const IOS_LAST_CONFIRMED_PUBLIC_BUILD_NUMBER = 59;
 const IOS_APP_STORE_LOOKUP_URL =
   "https://itunes.apple.com/lookup?id=6792811282&country=in";
 const IOS_APP_STORE_URL =
@@ -395,7 +397,7 @@ exports.getAdminPhaseOneData = onCall(
     if (!hasAdminClaim && !hasActiveAdminRecord && !hasInvitedAdminEmail) {
       throw new HttpsError(
         "permission-denied",
-        "This account is not a Pritze platform administrator.",
+        "This account is not a SalonFe platform administrator.",
       );
     }
     if (hasInvitedAdminEmail && !platformAdmin.exists) {
@@ -1045,7 +1047,7 @@ exports.reviewSalonOnboardingAsAdmin = onCall(
         "Your salon is approved" : "Your salon listing needs review",
       body: decision === "approved" ?
         `${salonName} is now visible to customers.` :
-        "Your salon is not visible to customers. Open Pritze or contact support for details.",
+        "Your salon is not visible to customers. Open SalonFe or contact support for details.",
       data: {type: "salon_onboarding_review", salonId, decision},
       requiredActiveRolesByUser: {[ownerUid]: ["owner"]},
     });
@@ -2457,7 +2459,7 @@ exports.markProinReimbursementSettledAsAdmin = onCall(
         const ownerUid = String(salonSnapshot.data()?.ownerUid || "").trim();
         await sendToUsers([ownerUid].filter(Boolean), {
           title: "Proin reimbursement recorded",
-          body: `₹${result.amountInr} has been marked as paid by Pritze.`,
+          body: `₹${result.amountInr} has been marked as paid by SalonFe.`,
           data: {
             type: "proin",
             event: "reimbursementSettled",
@@ -3172,7 +3174,7 @@ exports.sendAdminEmailOtp = onCall(
     if (!isPlatformAdminEmail(email)) {
       throw new HttpsError(
         "permission-denied",
-        "This email is not authorized for the Pritze Control Center.",
+        "This email is not authorized for the SalonFe Control Center.",
       );
     }
 
@@ -3232,7 +3234,7 @@ exports.verifyAdminEmailOtp = onCall(
     if (!isPlatformAdminEmail(email)) {
       throw new HttpsError(
         "permission-denied",
-        "This email is not authorized for the Pritze Control Center.",
+        "This email is not authorized for the SalonFe Control Center.",
       );
     }
     if (!/^\d{6}$/.test(code)) {
@@ -3373,7 +3375,7 @@ exports.signInAdminWithPassword = onCall(
     }
 
     const authUid = adminString(credential.authUid);
-    const displayName = adminString(credential.displayName) || "Pritze Admin";
+    const displayName = adminString(credential.displayName) || "SalonFe Admin";
     if (!authUid) {
       console.error("Administrator credential is missing an Auth UID", {
         credentialId,
@@ -3411,7 +3413,7 @@ exports.signInAdminWithPassword = onCall(
         action: "administrator.signed_in",
         targetType: "platformAdmin",
         targetId: authUid,
-        reason: "Pritze team credential authentication",
+        reason: "SalonFe team credential authentication",
         before: {},
         after: {provider: "admin_password"},
       }));
@@ -3671,6 +3673,8 @@ exports.createBooking = onMobileCall({
   invoker: "public",
   enforceAppCheck: true,
   cpu: 1,
+  minInstances: 1,
+  maxInstances: 20,
 }, async (request) => {
   const uid = requireAuthenticatedUid(request);
   const firestore = admin.firestore();
@@ -3763,6 +3767,7 @@ exports.createBooking = onMobileCall({
     durationMinutes: 1,
     openTime: salon.openTime,
     closeTime: salon.closeTime,
+    closedWeekdays: salon.closedWeekdays,
   })) {
     throw new HttpsError(
       "failed-precondition",
@@ -3782,6 +3787,7 @@ exports.createBooking = onMobileCall({
     durationMinutes,
     openTime: salon.openTime,
     closeTime: salon.closeTime,
+    closedWeekdays: salon.closedWeekdays,
   })) {
     throw new HttpsError(
       "failed-precondition",
@@ -3927,6 +3933,11 @@ exports.createBooking = onMobileCall({
     if (!currentSalon || !isSalonApproved(currentSalon) ||
         currentSalon.isOpen !== true) {
       throw new HttpsError("failed-precondition", "This salon is not bookable.");
+    }
+    if (!isWithinSalonHours({startMillis, durationMinutes,
+      openTime: currentSalon.openTime, closeTime: currentSalon.closeTime,
+      closedWeekdays: currentSalon.closedWeekdays})) {
+      throw new HttpsError("failed-precondition", "This salon is closed at the selected time.");
     }
     if (isInstant && (!isInstantEnabledForSalon(currentSalon) ||
         serviceIds.some((id) => {
@@ -4862,13 +4873,13 @@ function discountBenefitMessage(quote, labelOverride = "") {
 }
 
 exports.rescheduleBooking = onMobileCall(
-  // Full vCPU: a customer-facing booking change, waited on in the UI.
-  {invoker: "public", cpu: 1},
+  // Preserve the existing regional runtime limits on future deployments.
+  {invoker: "public", cpu: 1, maxInstances: 3},
   (request) => rescheduleBookingHandler(request),
 );
 
 exports.rescheduleBookingAsAdmin = onCall(
-  {invoker: "public", enforceAppCheck: false, cpu: "gcf_gen1"},
+  {invoker: "public", enforceAppCheck: false, cpu: "gcf_gen1", maxInstances: 5},
   (request) => rescheduleBookingHandler(request, {platformAdmin: true}),
 );
 
@@ -4939,6 +4950,7 @@ async function rescheduleBookingHandler(
       durationMinutes,
       openTime: salon.openTime,
       closeTime: salon.closeTime,
+      closedWeekdays: salon.closedWeekdays,
     })) {
       throw new HttpsError(
         "failed-precondition",
@@ -6198,7 +6210,7 @@ exports.updateReferralCodeAsAdmin = onCall(
 );
 
 exports.completeReferralOnboarding = onMobileCall(
-  {enforceAppCheck: true, invoker: "public", cpu: "gcf_gen1"},
+  {enforceAppCheck: true, invoker: "public", cpu: "gcf_gen1", minInstances: 0, maxInstances: 5, concurrency: 1},
   async (request) => {
     const uid = requireAuthenticatedUid(request);
     const rawCode = String(request.data?.referralCode ?? "").trim();
@@ -6220,7 +6232,7 @@ exports.completeReferralOnboarding = onMobileCall(
     return firestore.runTransaction(async (transaction) => {
       const userSnapshot = await transaction.get(userRef);
       const codeSnapshot = codeRef ? await transaction.get(codeRef) : null;
-      const referralSnapshot = await transaction.get(referralRef);
+      const referralSnapshot = code ? await transaction.get(referralRef) : null;
       const user = userSnapshot.data() ?? {};
       const role = inferStoredRole(user, false);
       if (role !== "customer" && role !== "owner") {
@@ -6581,8 +6593,15 @@ exports.claimOwnerProfilePhone = onMobileCall(
 // unrelated legacy profile field, while an offline Firestore write left the
 // button waiting indefinitely. These focused, idempotent callables validate
 // ownership once and update only the requested resource.
+function closedDaysInput(value, previous) {
+  if (value === undefined) return Array.isArray(previous) ? previous : [];
+  try { return normalizeClosedWeekdays(value); } catch (error) {
+    throw new HttpsError("invalid-argument", error.message);
+  }
+}
+
 exports.saveOwnerSalonProfile = onMobileCall(
-  {enforceAppCheck: false, invoker: "public", cpu: 1},
+  {enforceAppCheck: false, invoker: "public", cpu: 1, maxInstances: 5},
   async (request) => {
     const startedAt = Date.now();
     const uid = requireAuthenticatedUid(request);
@@ -6649,7 +6668,7 @@ exports.saveOwnerSalonProfile = onMobileCall(
     if (previous?.adminSuspended === true) {
       throw new HttpsError(
         "failed-precondition",
-        "This salon is suspended. Contact Pritze support.",
+        "This salon is suspended. Contact SalonFe support.",
       );
     }
     const previousPhone = normalizeVerifiedPhone(previous?.phone);
@@ -6675,6 +6694,7 @@ exports.saveOwnerSalonProfile = onMobileCall(
       distanceLabel: adminString(previous?.distanceLabel) || "Nearby",
       openTime,
       closeTime,
+      closedWeekdays: closedDaysInput(request.data?.closedWeekdays, previous?.closedWeekdays),
       isOpen: previous ? previous.isOpen === true : true,
       instantBookingsEnabled:
         previous ? previous.instantBookingsEnabled !== false : true,
@@ -6689,6 +6709,129 @@ exports.saveOwnerSalonProfile = onMobileCall(
       durationMs: Date.now() - startedAt,
     });
     return {salonId, name, phone, email};
+  },
+);
+
+// New clients save the whole required registration together. Keep the legacy
+// profile endpoint compatible with installed clients that upload photos later.
+exports.saveOwnerSalonShop = onMobileCall(
+  {enforceAppCheck: false, invoker: "public", cpu: 1},
+  async (request) => {
+    const uid = requireAuthenticatedUid(request);
+    const data = request.data || {};
+    const salonId = validOwnerResourceId(data.salonId, "salon id");
+    const name = normalizeDisplayName(data.name);
+    const ownerName = normalizeDisplayName(data.ownerName);
+    const address = adminString(data.address).slice(0, 500);
+    const phone = normalizeVerifiedPhone(data.phone);
+    const directionsUrl = adminHttpsUrl(data.directionsUrl);
+    const logoUrl = adminHttpsUrl(data.logoUrl);
+    const photoUrls = sanitizePhotoUrls(data.photoUrls);
+    const openTime = adminSalonTime(data.openTime);
+    const closeTime = adminSalonTime(data.closeTime);
+    if (!name || !ownerName || !address || !phone || !openTime ||
+        !closeTime || adminSalonMinutes(closeTime) <= adminSalonMinutes(openTime) ||
+        directionsUrl === null || logoUrl === null) {
+      throw new HttpsError("invalid-argument", "Enter valid shop details and opening hours.");
+    }
+    if (!photoUrls.length) {
+      throw new HttpsError("failed-precondition", "Add at least one salon photo before saving.");
+    }
+    const drafts = Array.isArray(data.initialBarbers) ? data.initialBarbers : [];
+    if (drafts.length > 50) throw new HttpsError("invalid-argument", "Add no more than 50 barbers at a time.");
+    const initialBarbers = drafts.map((barber) => ({
+      id: validOwnerResourceId(barber.id, "barber id"),
+      name: normalizeDisplayName(barber.name),
+    }));
+    if (initialBarbers.some((barber) => !barber.name) ||
+        new Set(initialBarbers.map((barber) => barber.id)).size !== initialBarbers.length) {
+      throw new HttpsError("invalid-argument", "Enter a name for every barber.");
+    }
+    const firestore = admin.firestore();
+    const salonRef = firestore.collection("salons").doc(salonId);
+    const ownerRef = firestore.collection("users").doc(uid);
+    const [ownerSnapshot, salonSnapshot] = await Promise.all([ownerRef.get(), salonRef.get()]);
+    requireStoredRole(ownerSnapshot.data(), "owner");
+    if (salonSnapshot.exists ? salonSnapshot.data().ownerUid !== uid : salonId !== `salon-${uid}`) {
+      throw new HttpsError("permission-denied", "Only this salon's owner can edit it.");
+    }
+    if (salonSnapshot.data()?.adminSuspended === true) {
+      throw new HttpsError("failed-precondition", "This salon is suspended. Contact SalonFe support.");
+    }
+    await claimOwnerProfilePhoneForUid({uid, phone});
+    await firestore.runTransaction(async (transaction) => {
+      const [owner, snapshot, existingBarbers, ...draftSnapshots] = await Promise.all([
+        transaction.get(ownerRef), transaction.get(salonRef),
+        transaction.get(firestore.collection("barbers").where("salonId", "==", salonId)),
+        ...initialBarbers.map((barber) => transaction.get(firestore.collection("barbers").doc(barber.id))),
+      ]);
+      requireStoredRole(owner.data(), "owner");
+      const previous = snapshot.data();
+      if (previous ? previous.ownerUid !== uid : salonId !== `salon-${uid}`) {
+        throw new HttpsError("permission-denied", "Only this salon's owner can edit it.");
+      }
+      if (previous?.adminSuspended === true) throw new HttpsError("failed-precondition", "This salon is suspended.");
+      if (draftSnapshots.some((doc) => doc.exists && (doc.data().salonId !== salonId || doc.data().ownerUid !== uid))) {
+        throw new HttpsError("permission-denied", "A barber belongs to another salon.");
+      }
+      const newBarbers = initialBarbers.filter((barber, index) => !draftSnapshots[index].exists);
+      if (!hasNamedBarber([...existingBarbers.docs.map((doc) => doc.data()), ...newBarbers])) {
+        throw new HttpsError("failed-precondition", "Add at least one named barber before saving.");
+      }
+      const services = canonicalizeSalonServices(previous?.services || data.services);
+      const timestamp = admin.firestore.FieldValue.serverTimestamp();
+      transaction.set(salonRef, {
+        ownerUid: uid, name, ownerName, address, directionsUrl, phone,
+        // Email is optional and kept privately supplied by existing accounts.
+        email: normalizeEmail(previous?.email) || normalizeEmail(owner.data()?.email) || "",
+        logoUrl, photoUrls, openTime, closeTime, services,
+        closedWeekdays: closedDaysInput(data.closedWeekdays, previous?.closedWeekdays),
+        distanceLabel: adminString(previous?.distanceLabel) || "Nearby",
+        isOpen: previous ? previous.isOpen === true : true,
+        instantBookingsEnabled: previous ? previous.instantBookingsEnabled !== false : true,
+        approvalStatus: previous ? salonApprovalStatus(previous) : "pending",
+        updatedAt: timestamp,
+      }, {merge: true});
+      initialBarbers.forEach((barber, index) => {
+        // Retried saves are idempotent; never reset an existing staff profile.
+        if (draftSnapshots[index].exists) return;
+        transaction.create(draftSnapshots[index].ref, {
+          ownerUid: uid, salonId, name: barber.name, phone: "", email: "",
+          speciality: "Grooming expert", experienceYears: 0,
+          resumeSummary: "Customer-first grooming professional.",
+          serviceIds: services.map((service) => service.id), isActive: true,
+          createdAt: timestamp, updatedAt: timestamp,
+        });
+      });
+    });
+    return {salonId};
+  },
+);
+
+exports.getSalonBalanceSummary = onMobileCall(
+  {enforceAppCheck: false, invoker: "public", cpu: 1},
+  async (request) => {
+    const uid = requireAuthenticatedUid(request);
+    const salonId = validOwnerResourceId(request.data?.salonId, "salon id");
+    const {firestore} = await requireOwnedSalon({uid, salonId});
+    // Single-field queries use automatic indexes and include every page.
+    async function readAll(query) {
+      const result = [];
+      let cursor = null;
+      while (true) {
+        let pageQuery = query.orderBy(admin.firestore.FieldPath.documentId()).limit(500);
+        if (cursor) pageQuery = pageQuery.startAfter(cursor);
+        const page = await pageQuery.get();
+        result.push(...page.docs.map((doc) => doc.data()));
+        if (page.size < 500) return result;
+        cursor = page.docs[page.size - 1];
+      }
+    }
+    const [lots, bookings] = await Promise.all([
+      readAll(firestore.collection("proinLots").where("accountId", "==", salonId)),
+      readAll(firestore.collection("bookings").where("salonId", "==", salonId)),
+    ]);
+    return salonBalanceSummary(lots, bookings);
   },
 );
 
@@ -7341,7 +7484,7 @@ function quoteForDiscountCampaign(campaignId, campaign, context, vault = {}) {
   const customerFacingCampaign = effectiveCampaign
     .journeyMilestoneBookingNumber ? {
       ...effectiveCampaign,
-      name: "Pritze offer",
+      name: "SalonFe offer",
     } : effectiveCampaign;
   return calculateDiscountQuote(
     campaignId,
@@ -7800,7 +7943,7 @@ function resolveReservedDiscountInTransaction({
 
   if (!isRedeemed || payoutAmount <= 0) return salonCredit.lotsChanged;
   const salonId = String(booking.salonId ?? "").trim();
-  // The part of the payout taken from a deposit Pritze already paid the salon
+  // The part of the payout taken from a deposit SalonFe already paid the salon
   // is settled; only the rest (earned credit or the credit line) is owed.
   const prepaidAmount = Math.min(payoutAmount, salonCredit.depositProin);
   const owedAmount = payoutAmount - prepaidAmount;
@@ -7987,7 +8130,7 @@ function reserveSalonPromotionCreditInTransaction({
 
 // Reports whether granted credit lots changed, so the caller can refresh the
 // wallet's next-expiry summary after the booking commits, and how much of a
-// redemption came from deposit credit Pritze has already paid the salon.
+// redemption came from deposit credit SalonFe has already paid the salon.
 function resolveSalonPromotionCreditInTransaction({
   transaction,
   firestore,
@@ -8258,7 +8401,7 @@ async function requireOwnedSalon({uid, salonId}) {
   if (salon.adminSuspended === true) {
     throw new HttpsError(
       "failed-precondition",
-      "This salon is suspended. Contact Pritze support.",
+      "This salon is suspended. Contact SalonFe support.",
     );
   }
   return {firestore, salonRef, salon};
@@ -8573,7 +8716,7 @@ async function requirePlatformAdministrator(request) {
   if (snapshot.exists && snapshot.data()?.active === false) {
     throw new HttpsError(
       "permission-denied",
-      "This account is not a Pritze platform administrator.",
+      "This account is not a SalonFe platform administrator.",
     );
   }
   const email = normalizeEmail(request.auth?.token?.email);
@@ -8586,7 +8729,7 @@ async function requirePlatformAdministrator(request) {
   }
   throw new HttpsError(
     "permission-denied",
-    "This account is not a Pritze platform administrator.",
+    "This account is not a SalonFe platform administrator.",
   );
 }
 
@@ -9381,11 +9524,11 @@ async function sendOtpMail(email, code) {
   await otpMailTransport().sendMail({
     from: smtpFrom.value(),
     to: email,
-    subject: "Your Pritze login OTP",
-    text: `Your Pritze login OTP is ${code}. It expires in 10 minutes.`,
+    subject: "Your SalonFe login OTP",
+    text: `Your SalonFe login OTP is ${code}. It expires in 10 minutes.`,
     html: `
       <div style="font-family:Arial,sans-serif;line-height:1.5">
-        <h2>Your Pritze login OTP</h2>
+        <h2>Your SalonFe login OTP</h2>
         <p>Use this code to sign in:</p>
         <p style="font-size:28px;font-weight:700;letter-spacing:4px">${code}</p>
         <p>This code expires in 10 minutes.</p>
@@ -9421,7 +9564,7 @@ function bookingStatusMessage(booking) {
       return {
         title: booking.completionSource === "automatic_timeout" ?
           "Service completed automatically" : "Service completed",
-        body: `${service} is completed. Final amount ₹${money(booking.customerPayableAmount)} is ready. Open Pritze to view payment options.`,
+        body: `${service} is completed. Final amount ₹${money(booking.customerPayableAmount)} is ready. Open SalonFe to view payment options.`,
       };
     case "cancelled":
       if (booking.cancelledBy === "system") {
@@ -10049,3 +10192,21 @@ async function cleanupInvalidTokens(
     );
   }));
 }
+
+// Only allowlisted public listing data is rendered. No account or payout data.
+exports.salonSharePage = onRequest({invoker: "public", cpu: "gcf_gen1", maxInstances: 3}, async (req, res) => {
+  const {validSalonId, publicSalon, renderSalonPage} = require("./salon_public_page");
+  if (req.method !== "GET" && req.method !== "HEAD") return res.status(405).send("Method not allowed");
+  const match = req.path.match(/^\/s\/([^/]+)\/?$/);
+  const id = match?.[1] || "";
+  if (!validSalonId(id)) return res.status(404).send("Salon not found");
+  try {
+    const snapshot = await admin.firestore().collection("salons").doc(id).get();
+    const salon = snapshot.data();
+    res.set("Cache-Control", "public, max-age=60, s-maxage=60");
+    res.status(publicSalon(salon) ? 200 : 404).type("html").send(renderSalonPage(id, salon));
+  } catch (error) {
+    console.error("salon share page failed", {message: error.message});
+    res.set("Cache-Control", "no-store").status(503).send("Please try this salon link again shortly.");
+  }
+});

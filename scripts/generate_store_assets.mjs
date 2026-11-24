@@ -4,18 +4,18 @@ import { join } from 'node:path';
 const outDir = 'store_assets';
 mkdirSync(outDir, { recursive: true });
 
-const logo = readFileSync('assets/brand/pritze_icon_mark_transparent.png');
+const logo = readFileSync('assets/brand/salonfe_icon.png');
 const logoHref = `data:image/png;base64,${logo.toString('base64')}`;
 
 const colors = {
-  ink: '#111827',
+  ink: '#000000',
   muted: '#64748b',
   line: '#e5e7eb',
-  canvas: '#f7f8fb',
-  primary: '#0f766e',
+  canvas: '#FFFFFF',
+  primary: '#FF7B54',
   mint: '#dff7ef',
   coral: '#ef6a5b',
-  amber: '#f5b84b',
+  amber: '#FF7B54',
   blue: '#2563eb',
   plum: '#7c3aed',
 };
@@ -63,7 +63,7 @@ function phoneFrame(content, title, subtitle) {
   <rect x="116" y="112" width="848" height="1696" rx="42" fill="#ffffff"/>
   <rect x="438" y="132" width="204" height="22" rx="11" fill="#111827"/>
   ${logoMark(154, 186, 78)}
-  ${text(248, 235, 'Pritze', 42, 900)}
+  ${text(248, 235, 'SalonFe', 42, 900)}
   ${text(154, 330, title, 50, 900)}
   ${text(154, 378, subtitle, 25, 600, colors.muted)}
   ${content}
@@ -185,7 +185,7 @@ function featureGraphic() {
   <circle cx="890" cy="90" r="170" fill="#dff7ef"/>
   <circle cx="820" cy="430" r="210" fill="#fff5df"/>
   ${logoMark(82, 116, 156)}
-  ${text(82, 336, 'Pritze', 82, 900)}
+  ${text(82, 336, 'SalonFe', 82, 900)}
   ${text(88, 386, 'Book salon and grooming appointments easily', 30, 700, colors.muted)}
   ${rounded(640, 84, 280, 332, 42, '#fff', '#dbe7e1', 2)}
   ${text(682, 150, 'Today', 26, 900)}

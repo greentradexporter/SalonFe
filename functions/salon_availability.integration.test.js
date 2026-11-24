@@ -1,0 +1,25 @@
+const test=require('node:test');
+const assert=require('node:assert/strict');
+test('booking endpoints enforce closed days and referral skip is idempotent', {skip:!process.env.FIRESTORE_EMULATOR_HOST}, async()=>{
+ process.env.GCLOUD_PROJECT='demo-salonfe-availability';
+ process.env.FIREBASE_CONFIG=JSON.stringify({projectId:'demo-salonfe-availability'});
+ const admin=require('firebase-admin'), functions=require('./index'), db=admin.firestore();
+ const set=(path,data)=>db.doc(path).set(data);
+ await set('users/customer',{role:'customer',activeRole:'customer',name:'Customer',phone:'+919000000001',referralOnboardingCompleted:false});
+ await set('salons/salon',{ownerUid:'owner',isOpen:true,approvalStatus:'approved',instantBookingsEnabled:true,openTime:'12:00 AM',closeTime:'11:59 PM',closedWeekdays:[1,2,3,4,5,6,7],services:[{id:'haircut',name:'Haircut',price:200,durationMinutes:30,isAvailable:true}]});
+ await set('barbers/barber',{salonId:'salon',ownerUid:'owner',serviceIds:['haircut'],isActive:true});
+ const auth={uid:'customer'}, tomorrow=new Date(Date.now()+24*60*60*1000);
+ tomorrow.setUTCHours(5,0,0,0);
+ const data={salonId:'salon',serviceId:'haircut',barberId:'barber',startMillis:tomorrow.getTime(),arrivalMinutes:15};
+ await assert.rejects(functions.createBooking.run({auth,data:{...data,isInstant:true}}),e=>e.code==='failed-precondition');
+ await assert.rejects(functions.createBooking.run({auth,data:{...data,isInstant:false}}),e=>e.code==='failed-precondition');
+ await assert.rejects(functions.createBooking.run({data}),e=>e.code==='unauthenticated');
+ await set('bookings/booking',{salonId:'salon',serviceId:'haircut',barberId:'barber',customerUid:'customer',status:'confirmed',isInstant:false,start:admin.firestore.Timestamp.fromMillis(tomorrow.getTime()),durationMinutes:30});
+ await assert.rejects(functions.rescheduleBooking.run({auth,data:{bookingId:'booking',barberId:'barber',startMillis:tomorrow.getTime()+30*60*1000}}),e=>e.code==='failed-precondition');
+ assert.equal((await db.collection('bookings').get()).size,1);
+ const result=await functions.completeReferralOnboarding.run({auth,data:{referralCode:''}});
+ assert.equal(result.completed,true);
+ assert.equal((await db.doc('users/customer').get()).data().referralOnboardingCompleted,true);
+ assert.equal((await db.collection('referrals').get()).size,0);
+ assert.equal((await functions.completeReferralOnboarding.run({auth,data:{referralCode:''}})).alreadyCompleted,true);
+});

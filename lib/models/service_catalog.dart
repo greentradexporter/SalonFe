@@ -321,33 +321,39 @@ String serviceIconAssetForService(String serviceName, {String category = ''}) {
   final normalizedCategory = category.toLowerCase();
   final combined = '$normalizedName $normalizedCategory';
   if (normalizedName.contains('haircut')) {
-    return 'assets/service_icons/haircut.jpeg';
+    return 'assets/service_icons/haircut.png';
   }
   if (combined.contains('beard') || combined.contains('shav')) {
-    return 'assets/service_icons/beard.jpeg';
+    return 'assets/service_icons/beard.png';
   }
   if (combined.contains('wax')) {
-    return 'assets/service_icons/waxing.jpeg';
+    return 'assets/service_icons/waxing.png';
   }
   if (combined.contains('thread')) {
-    return 'assets/service_icons/threading.jpeg';
+    return 'assets/service_icons/threading.png';
+  }
+  if (combined.contains('hair wash')) {
+    return 'assets/service_icons/hair_wash.png';
+  }
+  if (combined.contains('mani')) {
+    return 'assets/service_icons/nails.png';
   }
   if (combined.contains('mani') ||
       combined.contains('pedi') ||
       combined.contains('nail')) {
-    return 'assets/service_icons/mani_pedi.jpeg';
+    return 'assets/service_icons/mani_pedi.png';
   }
   if (combined.contains('makeup') ||
       combined.contains('bridal') ||
       combined.contains('party')) {
-    return 'assets/service_icons/facial.jpeg';
+    return 'assets/service_icons/facial.png';
   }
   if (combined.contains('facial') ||
       combined.contains('cleanup') ||
       combined.contains('skin') ||
       combined.contains('bleach') ||
       combined.contains('detan')) {
-    return 'assets/service_icons/facial.jpeg';
+    return 'assets/service_icons/facial.png';
   }
   if (combined.contains('color') ||
       combined.contains('colour') ||
@@ -361,9 +367,9 @@ String serviceIconAssetForService(String serviceName, {String category = ''}) {
       combined.contains('massage') ||
       combined.contains('hair wash') ||
       combined.contains('hair care')) {
-    return 'assets/service_icons/spa.jpeg';
+    return 'assets/service_icons/spa.png';
   }
-  return 'assets/service_icons/haircut.jpeg';
+  return 'assets/service_icons/haircut.png';
 }
 
 String serviceIconAssetForCategory(String category) {
@@ -417,39 +423,7 @@ bool serviceMatchesBarberSpeciality(SalonService service, String speciality) {
       name.contains('trim');
 }
 
-Color serviceColorForCategory(String category) {
-  final normalized = category.toLowerCase();
-  if (normalized.contains('beard') || normalized.contains('shav')) {
-    return AppColors.goldDeep;
-  }
-  if (normalized.contains('facial') ||
-      normalized.contains('cleanup') ||
-      normalized.contains('skin') ||
-      normalized.contains('bleach') ||
-      normalized.contains('detan')) {
-    return AppColors.leaf;
-  }
-  if (normalized.contains('spa') || normalized.contains('massage')) {
-    return AppColors.plum;
-  }
-  if (normalized.contains('mani') ||
-      normalized.contains('pedi') ||
-      normalized.contains('nail')) {
-    return AppColors.rose;
-  }
-  if (normalized.contains('thread') || normalized.contains('wax')) {
-    return AppColors.gold;
-  }
-  if (normalized.contains('color') ||
-      normalized.contains('colour') ||
-      normalized.contains('texture')) {
-    return AppColors.copper;
-  }
-  if (normalized.contains('makeup') || normalized.contains('bridal')) {
-    return AppColors.rose;
-  }
-  return AppColors.primary;
-}
+Color serviceColorForCategory(String category) => AppColors.primary;
 
 IconData serviceFallbackIconForCategory(String category) {
   final normalized = category.toLowerCase();

@@ -1,6 +1,6 @@
-# vinext-starter
+# SalonFe Control Center
 
-A clean full-stack starter running on
+The SalonFe administrator website runs on
 [vinext](https://github.com/cloudflare/vinext), with optional Cloudflare D1 and
 Drizzle support.
 
