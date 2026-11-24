@@ -10341,6 +10341,8 @@ Map<String, Object?> ownerSalonCopyData(Salon salon) => {
   'ownerName': salon.ownerName,
   'address': salon.address,
   'directionsUrl': salon.directionsUrl,
+  'latitude': salon.latitude,
+  'longitude': salon.longitude,
   'phone': salon.phone,
   'email': salon.email,
   'logoUrl': salon.logoUrl,
@@ -10393,6 +10395,16 @@ Salon _salonFromData(String id, Map<String, dynamic> data) {
     ownerName: _string(data['ownerName'], ''),
     address: _string(data['address'], ''),
     directionsUrl: _string(data['directionsUrl'], ''),
+    latitude:
+        data['mapPinSourceUrl'] == null ||
+            data['mapPinSourceUrl'] == data['directionsUrl']
+        ? double.tryParse('${data['latitude'] ?? data['mapLatitude']}')
+        : null,
+    longitude:
+        data['mapPinSourceUrl'] == null ||
+            data['mapPinSourceUrl'] == data['directionsUrl']
+        ? double.tryParse('${data['longitude'] ?? data['mapLongitude']}')
+        : null,
     phone: _string(data['phone'], ''),
     email: _string(data['email'], ''),
     logoUrl: _string(data['logoUrl'], ''),

@@ -335,6 +335,9 @@ String serviceIconAssetForService(String serviceName, {String category = ''}) {
   if (combined.contains('hair wash')) {
     return 'assets/service_icons/hair_wash.png';
   }
+  if (combined.contains('mani/pedi')) {
+    return 'assets/service_icons/mani_pedi.png';
+  }
   if (combined.contains('mani')) {
     return 'assets/service_icons/nails.png';
   }
@@ -346,14 +349,14 @@ String serviceIconAssetForService(String serviceName, {String category = ''}) {
   if (combined.contains('makeup') ||
       combined.contains('bridal') ||
       combined.contains('party')) {
-    return 'assets/service_icons/facial.png';
+    return 'assets/service_icons/makeup-v2.png';
   }
   if (combined.contains('facial') ||
       combined.contains('cleanup') ||
       combined.contains('skin') ||
       combined.contains('bleach') ||
       combined.contains('detan')) {
-    return 'assets/service_icons/facial.png';
+    return 'assets/service_icons/facial-v2.png';
   }
   if (combined.contains('color') ||
       combined.contains('colour') ||

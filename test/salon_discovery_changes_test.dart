@@ -184,14 +184,15 @@ void main() {
     },
   );
   testWidgets(
-    'policy is readable offline and contains confirmed operator and contact',
+    'policy is readable offline with phone contact and no personal name',
     (tester) async {
       await tester.pumpWidget(
         MaterialApp(home: const LegalScreen(document: LegalDocument.privacy)),
       );
       await tester.pumpAndSettle();
-      expect(find.textContaining('Mayur Muley'), findsWidgets);
-      expect(find.textContaining('greentradexporter@gmail.com'), findsWidgets);
+      expect(find.textContaining('+91 89996 08278'), findsWidgets);
+      expect(find.textContaining('Mayur'), findsNothing);
+      expect(find.textContaining('greentradexporter@gmail.com'), findsNothing);
     },
   );
   testWidgets('service artwork preview renders without errors', (tester) async {

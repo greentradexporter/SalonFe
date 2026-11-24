@@ -5,7 +5,7 @@
     "sections": [
       {
         "title": "About this policy",
-        "body": "SalonFe helps customers discover salons and book services, and helps salon owners and barbers manage appointments. SalonFe is operated by Mayur Muley. Contact greentradexporter@gmail.com or +91 89996 08278 for support, privacy requests or concerns."
+        "body": "SalonFe helps customers discover salons and book services, and helps salon owners and barbers manage appointments. Contact +91 89996 08278 for support, privacy requests or concerns."
       },
       {
         "title": "Information we use",
@@ -13,7 +13,7 @@
       },
       {
         "title": "Optional location for discovery",
-        "body": "We ask permission before obtaining a foreground location for salon discovery. You may decline and continue browsing or booking. When signed in as a customer, we round coordinates to approximately 100-metre precision and save the latest discovery location privately in your account. This is a one-time foreground reading, not continuous background tracking. The latest saved discovery location remains until replaced, cleared through Profile \u2192 Discovery location, or removed following an applicable deletion request. Your device can provide approximate location instead of precise location. Guest discovery coordinates stay in app memory and may be saved to your account if you sign in during that session with location consent enabled."
+        "body": "We ask permission before obtaining a foreground location for salon discovery. You may decline and continue browsing or booking. When signed in as a customer, we round coordinates to approximately 100-metre precision and save the latest discovery location privately in your account. This is a one-time foreground reading, not continuous background tracking. The latest saved discovery location remains until replaced, cleared through Profile \u2192 Discovery location, or removed following an applicable deletion request. Your device can provide approximate location instead of precise location. Guest discovery coordinates stay in app memory and may be saved to your account if you sign in during that session with location consent enabled. When you choose Nearest, the app uses this location and available salon map pins to sort by approximate straight-line distance, not road distance or travel time."
       },
       {
         "title": "Arrival sharing is separate",
@@ -37,7 +37,7 @@
       },
       {
         "title": "Contact",
-        "body": "SalonFe is operated by Mayur Muley. Contact greentradexporter@gmail.com or +91 89996 08278 for support, privacy requests or concerns."
+        "body": "Contact +91 89996 08278 for support, privacy requests or concerns."
       }
     ]
   },
@@ -46,7 +46,7 @@
     "sections": [
       {
         "title": "About SalonFe",
-        "body": "These terms describe use of the SalonFe discovery, booking and salon management services operated by Mayur Muley. By using SalonFe you agree to use it in accordance with these terms and applicable law. Contact support if you need clarification."
+        "body": "These terms describe use of the SalonFe discovery, booking and salon management services. By using SalonFe you agree to use it in accordance with these terms and applicable law. Contact support if you need clarification."
       },
       {
         "title": "Accounts and guest browsing",
@@ -74,7 +74,7 @@
       },
       {
         "title": "Changes and contact",
-        "body": "We may update these terms and identify the latest version by its date. SalonFe is operated by Mayur Muley. Contact greentradexporter@gmail.com or +91 89996 08278 for support, privacy requests or concerns."
+        "body": "We may update these terms and identify the latest version by its date. Contact +91 89996 08278 for support, privacy requests or concerns."
       }
     ]
   }

@@ -5,6 +5,7 @@ import '../../state/app_state_scope.dart';
 import '../../state/app_state.dart';
 import '../../theme/app_theme.dart';
 import '../../utils/rating_utils.dart';
+import '../../utils/salon_sorting.dart';
 import '../../utils/url_launcher_utils.dart';
 import '../../widgets/app_bottom_nav.dart';
 import '../../widgets/account_actions.dart';
@@ -28,6 +29,8 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
   final Set<_ServiceCategory> _selectedCategories = {};
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
+  SalonSort _sort = SalonSort.recommended;
+  bool _findingLocation = false;
 
   @override
   void dispose() {
@@ -102,15 +105,59 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
                   ),
                 ),
                 const SizedBox(height: 18),
-                SectionHeader(
-                  title: _searchQuery.isNotEmpty
-                      ? 'Search results'
-                      : (_selectedCategories.isEmpty
-                            ? 'Recommended'
-                            : _selectedCategories.length == 1
-                            ? '${_selectedCategories.first.label} matches'
-                            : '${_selectedCategories.length} services selected'),
+                Row(
+                  children: [
+                    Expanded(
+                      child: SectionHeader(
+                        title: _searchQuery.isNotEmpty
+                            ? 'Search results'
+                            : (_selectedCategories.isEmpty
+                                  ? 'Recommended'
+                                  : _selectedCategories.length == 1
+                                  ? '${_selectedCategories.first.label} matches'
+                                  : '${_selectedCategories.length} services selected'),
+                      ),
+                    ),
+                    TextButton.icon(
+                      key: const ValueKey('salon-sort-button'),
+                      onPressed: _findingLocation ? null : _chooseSort,
+                      icon: _findingLocation
+                          ? const SizedBox.square(
+                              dimension: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.sort_rounded, size: 20),
+                      label: Text(
+                        _findingLocation
+                            ? 'Locating…'
+                            : _sort == SalonSort.recommended
+                            ? 'Sort'
+                            : _sort.label,
+                        style: Theme.of(context).textTheme.labelLarge,
+                      ),
+                    ),
+                  ],
                 ),
+                if (_sort == SalonSort.nearest &&
+                    _customerCoordinates(appState) == null)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 4),
+                    child: Text(
+                      'Location unavailable. Showing Recommended.',
+                      style: TextStyle(fontSize: 12, color: AppColors.muted),
+                    ),
+                  )
+                else if (_sort == SalonSort.nearest &&
+                    visibleSalons.any(
+                      (salon) => salonCoordinates(salon) == null,
+                    ))
+                  const Padding(
+                    padding: EdgeInsets.only(top: 4, bottom: 4),
+                    child: Text(
+                      'Salons without a map pin appear after nearby salons.',
+                      style: TextStyle(fontSize: 12, color: AppColors.muted),
+                    ),
+                  ),
                 const SizedBox(height: 8),
                 if (visibleSalons.isEmpty)
                   const EmptyState(
@@ -142,6 +189,86 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
     });
   }
 
+  Future<void> _chooseSort() async {
+    final choice = await showModalBottomSheet<SalonSort>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 0, 24, 12),
+              child: Text(
+                'Sort salons',
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
+            ),
+            for (final option in SalonSort.values)
+              ListTile(
+                key: ValueKey('salon-sort-${option.name}'),
+                leading: Icon(switch (option) {
+                  SalonSort.recommended => Icons.auto_awesome_outlined,
+                  SalonSort.nearest => Icons.near_me_outlined,
+                  SalonSort.highestRated => Icons.star_outline_rounded,
+                }),
+                title: Text(option.label),
+                subtitle: Text(switch (option) {
+                  SalonSort.recommended => 'Open salons and relevant matches',
+                  SalonSort.nearest => 'Closest to your current location',
+                  SalonSort.highestRated => 'Stars, then number of reviews',
+                }),
+                selected: _sort == option,
+                selectedColor: AppColors.primary,
+                trailing: _sort == option
+                    ? const Icon(Icons.check_circle, color: AppColors.primary)
+                    : const Icon(Icons.circle_outlined, color: AppColors.muted),
+                onTap: () => Navigator.pop(sheetContext, option),
+              ),
+            const SizedBox(height: 12),
+          ],
+        ),
+      ),
+    );
+    if (!mounted || choice == null) return;
+    final state = AppStateScope.read(context);
+    if (choice == SalonSort.nearest && _customerCoordinates(state) == null) {
+      setState(() => _findingLocation = true);
+      try {
+        await CustomerLocationGate.request(context, force: true);
+      } catch (_) {
+        // Optional location failures use the same browseable fallback below.
+      } finally {
+        if (mounted) setState(() => _findingLocation = false);
+      }
+      if (!mounted) return;
+      if (_customerCoordinates(state) == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Allow location to sort by nearest. Showing Recommended.',
+            ),
+          ),
+        );
+        setState(() => _sort = SalonSort.recommended);
+        return;
+      }
+    }
+    setState(() => _sort = choice);
+  }
+
+  SalonCoordinates? _customerCoordinates(AppState state) =>
+      validSalonCoordinates(
+        state.customerDiscoveryLatitude,
+        state.customerDiscoveryLongitude,
+      )
+      ? (
+          latitude: state.customerDiscoveryLatitude!,
+          longitude: state.customerDiscoveryLongitude!,
+        )
+      : null;
+
   List<Salon> _rankedSalons(AppState appState) {
     final query = _searchQuery.trim().toLowerCase();
     final salons = appState.discoverableSalons
@@ -154,20 +281,13 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
         )
         .toList();
 
-    salons.sort((a, b) {
-      final reviewOrder = compareSalonsByRating(a, b);
-      if (reviewOrder != 0) {
-        return reviewOrder;
-      }
-      final aPriority = _salonSortPriority(appState, a);
-      final bPriority = _salonSortPriority(appState, b);
-      if (aPriority != bPriority) {
-        return aPriority.compareTo(bPriority);
-      }
-      return a.displayName.compareTo(b.displayName);
-    });
-
-    return salons;
+    return sortSalons(
+      salons,
+      sort: _sort,
+      customer: _customerCoordinates(appState),
+      query: query,
+      availabilityPriority: (salon) => _salonSortPriority(appState, salon),
+    );
   }
 
   int _salonSortPriority(AppState appState, Salon salon) {

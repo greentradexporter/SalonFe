@@ -550,6 +550,8 @@ class Salon {
   final String ownerName;
   final String address;
   final String directionsUrl;
+  final double? latitude;
+  final double? longitude;
   final String phone;
   final String email;
   final String logoUrl;
@@ -574,6 +576,8 @@ class Salon {
     required this.ownerName,
     required this.address,
     this.directionsUrl = '',
+    this.latitude,
+    this.longitude,
     required this.phone,
     this.email = '',
     required this.logoUrl,
@@ -597,6 +601,8 @@ class Salon {
     String? ownerName,
     String? address,
     String? directionsUrl,
+    double? latitude,
+    double? longitude,
     String? phone,
     String? email,
     String? logoUrl,
@@ -619,6 +625,8 @@ class Salon {
       ownerName: ownerName ?? this.ownerName,
       address: address ?? this.address,
       directionsUrl: directionsUrl ?? this.directionsUrl,
+      latitude: latitude ?? this.latitude,
+      longitude: longitude ?? this.longitude,
       phone: phone ?? this.phone,
       email: email ?? this.email,
       logoUrl: logoUrl ?? this.logoUrl,

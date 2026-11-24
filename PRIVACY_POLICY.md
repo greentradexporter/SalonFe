@@ -4,7 +4,7 @@ Last updated: November 24, 2026
 
 ## About this policy
 
-SalonFe helps customers discover salons and book services, and helps salon owners and barbers manage appointments. SalonFe is operated by Mayur Muley. Contact greentradexporter@gmail.com or +91 89996 08278 for support, privacy requests or concerns.
+SalonFe helps customers discover salons and book services, and helps salon owners and barbers manage appointments. Contact +91 89996 08278 for support, privacy requests or concerns.
 
 ## Information we use
 
@@ -12,7 +12,7 @@ We process account information such as your name, phone number, email, account r
 
 ## Optional location for discovery
 
-We ask permission before obtaining a foreground location for salon discovery. You may decline and continue browsing or booking. When signed in as a customer, we round coordinates to approximately 100-metre precision and save the latest discovery location privately in your account. This is a one-time foreground reading, not continuous background tracking. The latest saved discovery location remains until replaced, cleared through Profile → Discovery location, or removed following an applicable deletion request. Your device can provide approximate location instead of precise location. Guest discovery coordinates stay in app memory and may be saved to your account if you sign in during that session with location consent enabled.
+We ask permission before obtaining a foreground location for salon discovery. You may decline and continue browsing or booking. When signed in as a customer, we round coordinates to approximately 100-metre precision and save the latest discovery location privately in your account. This is a one-time foreground reading, not continuous background tracking. The latest saved discovery location remains until replaced, cleared through Profile → Discovery location, or removed following an applicable deletion request. Your device can provide approximate location instead of precise location. Guest discovery coordinates stay in app memory and may be saved to your account if you sign in during that session with location consent enabled. When you choose Nearest, the app uses this location and available salon map pins to sort by approximate straight-line distance, not road distance or travel time.
 
 ## Arrival sharing is separate
 
@@ -36,4 +36,4 @@ SalonFe is not directed to children under 13. We do not knowingly collect inform
 
 ## Contact
 
-SalonFe is operated by Mayur Muley. Contact greentradexporter@gmail.com or +91 89996 08278 for support, privacy requests or concerns.
+Contact +91 89996 08278 for support, privacy requests or concerns.

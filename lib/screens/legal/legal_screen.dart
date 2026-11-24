@@ -25,9 +25,7 @@ class LegalScreen extends StatelessWidget {
       future: rootBundle.loadString('assets/legal/policies.json'),
       builder: (context, snapshot) {
         if (snapshot.hasError) {
-          return const Center(
-            child: Text('Contact greentradexporter@gmail.com for a copy.'),
-          );
+          return const Center(child: Text('Call +91 89996 08278 for a copy.'));
         }
         if (!snapshot.hasData) {
           return const Center(child: CircularProgressIndicator());
